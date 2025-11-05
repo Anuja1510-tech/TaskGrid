@@ -10,7 +10,9 @@ from utils.mongo_db import init_mongo
 
 def create_app():
     app = Flask(__name__)
-    CORS(app)
+    
+    # ✅ Enable CORS for all routes and support credentials
+    CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
     # JWT configuration
     app.config['SECRET_KEY'] = 'your-secret-key-change-in-production'
