@@ -4,6 +4,7 @@ from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 
 from routes.mongo_auth import mongo_auth_bp
+from routes.mongo_tasks import mongo_tasks_bp
 from routes.mongo_data import mongo_data_bp
 from utils.mongo_db import init_mongo
 
@@ -14,24 +15,25 @@ def create_app():
     # ✅ Enable CORS for all routes and support credentials
     CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
-    # JWT configuration
+    # ✅ JWT configuration
     app.config['SECRET_KEY'] = 'your-secret-key-change-in-production'
     app.config['JWT_SECRET_KEY'] = 'jwt-secret-string-change-in-production'
 
     jwt = JWTManager(app)
 
-    # Initialize MongoDB connection
+    # ✅ Initialize MongoDB connection
     db = init_mongo()
     if db is None:
         raise RuntimeError("❌ MongoDB initialization failed.")
     else:
         print("✅ MongoDB initialized successfully.")
 
-    # Register Blueprints
-    app.register_blueprint(mongo_auth_bp, url_prefix='/auth')
-    app.register_blueprint(mongo_data_bp, url_prefix='/data')
+    # ✅ Register Blueprints
+    app.register_blueprint(mongo_auth_bp, url_prefix="/auth")
+    app.register_blueprint(mongo_data_bp, url_prefix="/data")
+    app.register_blueprint(mongo_tasks_bp, url_prefix="/data")  # ✅ Fixed prefix
 
-    # Root endpoint
+    # ✅ Root endpoint
     @app.route('/')
     def root():
         return jsonify({
@@ -44,7 +46,7 @@ def create_app():
             }
         })
 
-    # Health check endpoint
+    # ✅ Health check endpoint
     @app.route('/health')
     def health():
         return jsonify({'status': 'healthy', 'message': 'TaskGrid API with MongoDB is running'}), 200

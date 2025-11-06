@@ -7,12 +7,10 @@ mongo_tasks_bp = Blueprint("mongo_tasks", __name__)
 
 # ---------- Helper ----------
 def _task_public(doc):
-    """Convert MongoDB ObjectId fields to strings for JSON"""
     return to_str_id(doc)
 
-
 # ---------- CREATE TASK ----------
-@mongo_tasks_bp.route("/tasks", methods=["POST"])  # ✅ No '/data' prefix here
+@mongo_tasks_bp.route("/tasks", methods=["POST"])
 @jwt_required()
 def create_task():
     try:
@@ -31,7 +29,7 @@ def create_task():
             "title": data["title"],
             "description": data.get("description", ""),
             "priority": data.get("priority", "medium"),
-            "project_id": data.get("project_id"),
+            "project_id": data["project_id"],
             "estimated_hours": float(data.get("estimated_hours", 0)),
             "start_date": data["start_date"],
             "due_date": data["due_date"],
@@ -55,7 +53,7 @@ def create_task():
 
 
 # ---------- GET TASKS ----------
-@mongo_tasks_bp.route("/tasks", methods=["GET"])  # ✅ No '/data' prefix here
+@mongo_tasks_bp.route("/tasks", methods=["GET"])
 @jwt_required()
 def get_tasks():
     try:
