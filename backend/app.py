@@ -31,9 +31,10 @@ else:
 start_scheduler(app)
 
 # Register routes
+# Register routes
 app.register_blueprint(auth_bp, url_prefix="/auth")
 app.register_blueprint(data_bp, url_prefix="/data")
-app.register_blueprint(mongo_tasks_bp)
+app.register_blueprint(mongo_tasks_bp, url_prefix="/data") 
 
 # Root route
 @app.route('/')
