@@ -73,17 +73,26 @@ def oid(value):
 
 
 def to_str_id(doc):
-    """Convert ObjectId to string for JSON responses."""
+    """Convert ObjectId fields to strings for JSON responses."""
     if not doc:
         return None
+
+    # Handle lists of documents
     if isinstance(doc, list):
         for d in doc:
-            if "_id" in d:
-                d["_id"] = str(d["_id"])
+            to_str_id(d)
         return doc
-    if "_id" in doc:
+
+    # Handle single document
+    for key, value in list(doc.items()):
+        if isinstance(value, ObjectId):
+            doc[key] = str(value)
+
+    # Always convert _id
+    if "_id" in doc and isinstance(doc["_id"], ObjectId):
         doc["_id"] = str(doc["_id"])
     return doc
+
 
 
 # ✅ Collection shortcuts (auto-created when file imports)
