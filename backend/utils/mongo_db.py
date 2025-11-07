@@ -72,26 +72,40 @@ def oid(value):
         return None
 
 
+from bson import ObjectId
+
 def to_str_id(doc):
-    """Convert ObjectId fields to strings for JSON responses."""
+    """
+    Recursively convert ObjectId fields to strings for safe JSON serialization.
+    Works for nested dicts and lists.
+    """
     if not doc:
         return None
 
-    # Handle lists of documents
+    # If it's a list, apply recursively to each item
     if isinstance(doc, list):
-        for d in doc:
-            to_str_id(d)
-        return doc
+        return [to_str_id(d) for d in doc]
 
-    # Handle single document
-    for key, value in list(doc.items()):
-        if isinstance(value, ObjectId):
-            doc[key] = str(value)
+    # If it's a single document (dict)
+    if isinstance(doc, dict):
+        converted = {}
+        for key, value in doc.items():
+            if isinstance(value, ObjectId):
+                converted[key] = str(value)
+            elif isinstance(value, list):
+                converted[key] = [to_str_id(v) for v in value]
+            elif isinstance(value, dict):
+                converted[key] = to_str_id(value)
+            else:
+                converted[key] = value
+        return converted
 
-    # Always convert _id
-    if "_id" in doc and isinstance(doc["_id"], ObjectId):
-        doc["_id"] = str(doc["_id"])
+    # If it's directly an ObjectId
+    if isinstance(doc, ObjectId):
+        return str(doc)
+
     return doc
+
 
 
 

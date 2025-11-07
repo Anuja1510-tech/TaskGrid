@@ -66,10 +66,7 @@ def get_tasks():
     try:
         uid = get_jwt_identity()
         tasks = list(tasks_col.find({'user_id': oid(uid)}))
-
-        # ✅ Convert ObjectIds to strings for all tasks
         tasks = [to_str_id(t) for t in tasks]
-
         return jsonify({'tasks': tasks}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
