@@ -60,13 +60,11 @@ def create_task():
 
 
 # ---------- GET TASKS ----------
-@mongo_tasks_bp.route('/tasks', methods=['GET'])
+@app.route('/data/tasks', methods=['GET'])
 @jwt_required()
 def get_tasks():
-    try:
-        uid = get_jwt_identity()
-        tasks = list(tasks_col.find({'user_id': oid(uid)}))
-        tasks = [to_str_id(t) for t in tasks]
-        return jsonify({'tasks': tasks}), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    user_id = get_jwt_identity()
+    tasks = list(tasks_collection.find({"user_id": user_id}))
+    for t in tasks:
+        t["_id"] = str(t["_id"])  # Convert ObjectId to string
+    return jsonify({"tasks": tasks}), 200

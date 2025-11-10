@@ -449,11 +449,17 @@ if (prof && prof.user) {
     
     // Load projects
     const projectsData = await apiCall('/data/projects');
-    sample.projects = projectsData.projects || [];
+    sample.projects = projectsData.projects || projectsData.data || projectsData || [];
+    console.log("✅ Loaded projects from backend:", sample.projects);
+
     
     // Load tasks
-    const tasksData = await apiCall('/data/tasks');
-    sample.tasksMine = tasksData.tasks || [];
+   const tasksData = await apiCall('/data/tasks');
+   sample.tasksMine = tasksData.tasks || tasksData.data || tasksData || [];
+   console.log("✅ Loaded tasks from backend:", sample.tasksMine);
+
+
+   
     
     // Load users (for members list)
     try {

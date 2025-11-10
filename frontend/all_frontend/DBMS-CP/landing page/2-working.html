@@ -557,32 +557,38 @@
 
     /* ------------------------- Authentication ------------------------- */
     async function login(username, password) {
-      try {
-        const response = await fetch(`${API_BASE_URL}/auth/login`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ username, password })
-        });
+  try {
+    const response = await fetch(`${API_BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
 
-        const data = await response.json();
+    const data = await response.json();
 
-        if (response.ok) {
-          localStorage.setItem('taskgrid_token', data.access_token);
-          localStorage.setItem('taskgrid_user', JSON.stringify(data.user));
-          showToast('Login successful! Redirecting...', 'success');
-          
-          setTimeout(() => {
-            window.location.href = '../dashboard/dashboard-functional.html';
-          }, 1500);
-        } else {
-          throw new Error(data.error || 'Login failed');
-        }
-      } catch (error) {
-        showToast(`Login failed: ${error.message}`, 'error');
-      }
+    if (!response.ok) {
+      throw new Error(data.error || 'Login failed');
     }
+
+    // ✅ FIX: Use the correct token and keys that dashboard expects
+    localStorage.setItem('taskgrid_token', data.access_token);
+    localStorage.setItem('taskgrid_user', JSON.stringify(data.user));
+
+    // ✅ FIX: Also make sure the same token is accessible to all pages
+    sessionStorage.setItem('taskgrid_token', data.access_token);
+    sessionStorage.setItem('taskgrid_user', JSON.stringify(data.user));
+
+    showToast('✅ Login successful! Redirecting to dashboard...', 'success');
+
+    // ✅ Redirect to dashboard after login
+    setTimeout(() => {
+      window.location.href = '../dashboard/dashboard-functional.html';
+    }, 1000);
+  } catch (error) {
+    showToast(`❌ Login failed: ${error.message}`, 'error');
+  }
+}
+
 
     /* ------------------------- Year ------------------------- */
     $("#year").textContent = new Date().getFullYear();
