@@ -318,105 +318,26 @@
     </div>
   </aside>
 </div>
+<!-- Include configuration and API helper -->
+<script src="./js/config.js"></script>
+<script src="./js/api.js"></script>
 
 <script>
-/* ------- API Configuration ------- */
-const API_BASE_URL = 'https://taskgrid-yd65.onrender.com';
-let authToken = localStorage.getItem('taskgrid_token');
+/* ------- Centralized API config (use CONFIG from js/config.js) ------- */
+const TOKEN_KEY = `${CONFIG.STORAGE_PREFIX}token`;
+const USER_KEY  = `${CONFIG.STORAGE_PREFIX}user`;
 
-// API Helper Functions
-async function apiCall(endpoint, method = 'GET', data = null) {
-  const headers = {
-    'Content-Type': 'application/json',
-  };
-  
-  if (authToken) {
-    headers['Authorization'] = `Bearer ${authToken}`;
-  }
-  
-  const config = {
-    method,
-    headers,
-  };
-  
-  if (data) {
-    config.body = JSON.stringify(data);
-  }
-  
-  try {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
-    const result = await response.json();
-    
-    if (!response.ok) {
-      throw new Error(result.error || 'API request failed');
-    }
-    
-    return result;
-  } catch (error) {
-    console.error('API Error:', error);
-    showToast(error.message || 'Network error occurred', 'error');
-    throw error;
-  }
-}
-
-/* ------- User Data Management ------- */
-let sample = {
-  projects: [],
-  tasksMine: [],
-  members: [],
-  updates: [],
-  notifs: [],
-  profile: {
-    name: "User",
-    email: "user@taskgrid.com",
-    role: "Member",
-    joinDate: new Date().toISOString().split('T')[0],
-    avatar: "YU",
-    preferences: {
-      notifications: true,
-      emailAlerts: true,
-      theme: "dark"
-    }
-  }
-};
-// ✅ Function to fetch profile and update UI immediately
-async function loadUserProfile() {
-  try {
-    const prof = await apiCall('/auth/profile');
-    if (prof && prof.user) {
-      localStorage.setItem('taskgrid_user', JSON.stringify(prof.user));
-      updateProfileUI(prof.user);
-    } else {
-      console.warn('⚠️ Could not fetch profile:', prof);
-    }
-  } catch (err) {
-    console.error('❌ Profile fetch error:', err);
-  }
-}
-
-// ✅ Function to fill UI fields dynamically
-function updateProfileUI(user) {
-  const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.username || 'User';
-  const email = user.email || '';
-  const role = user.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : 'Member';
-
-  const nameEl = document.getElementById('profile-name');
-  const emailEl = document.getElementById('profile-email');
-  const roleEl = document.getElementById('profile-role');
-  const topUserEl = document.getElementById('topUserName');
-
-  if (nameEl) nameEl.textContent = fullName;
-  if (emailEl) emailEl.textContent = email;
-  if (roleEl) roleEl.textContent = role;
-  if (topUserEl) topUserEl.textContent = user.first_name || user.username || 'User';
-}
+// read token from storage on load
+let authToken = localStorage.getItem(TOKEN_KEY);
 
 // Load data from backend
 async function loadUserData() {
   try {
+    // Re-read token before each load (this ensures redirects if user logged out elsewhere)
+    authToken = localStorage.getItem(TOKEN_KEY);
     if (!authToken) {
       // Redirect to login if no token
-      window.location.href = '../landing page/2-working.html';
+      window.location.href = '/login.html';
       return;
     }
     
@@ -424,7 +345,7 @@ async function loadUserData() {
     try {
       const stored = localStorage.getItem('taskgrid_user');
       if (stored) { try { setProfileFromUser(JSON.parse(stored)); } catch (e) {} }
-      const prof = await apiCall('/auth/profile');
+      const prof = await window.apiCall('/auth/profile');
 if (prof && prof.user) {
   // Save user locally for future sessions
   localStorage.setItem('taskgrid_user', JSON.stringify(prof.user));
@@ -445,25 +366,43 @@ if (prof && prof.user) {
     }
 
     // Load dashboard data
-    const dashboardData = await apiCall('/data/dashboard');
+    const dashboardData = await window.apiCall('/data/dashboard');
     
     // Load projects
-    const projectsData = await apiCall('/data/projects');
-    sample.projects = projectsData.projects || projectsData.data || projectsData || [];
+    const projectsData = await window.apiCall('/data/projects');
+    // Normalize project ids to `id` (frontend expects `id`)
+    const rawProjects = projectsData.projects || projectsData.data || projectsData || [];
+    sample.projects = (Array.isArray(rawProjects) ? rawProjects : []).map(p => {
+      // ensure consistent id property
+      p.id = p.id || p._id || p._id?.$oid || p._id_str || p.owner_id || p._id;
+      // keep original _id too
+      p._id = p._id || p.id;
+      return p;
+    });
     console.log("✅ Loaded projects from backend:", sample.projects);
 
     
     // Load tasks
-   const tasksData = await apiCall('/data/tasks');
-   sample.tasksMine = tasksData.tasks || tasksData.data || tasksData || [];
+   const tasksData = await window.apiCall('/data/tasks');
+   const rawTasks = tasksData.tasks || tasksData.data || tasksData || [];
+   // Normalize task ids and ensure project linkage keys are strings
+   sample.tasksMine = (Array.isArray(rawTasks) ? rawTasks : []).map(t => {
+     t.id = t.id || t._id || t._id?.$oid || t._id_str || t._id;
+     t._id = t._id || t.id;
+     // normalize project id to string (if present)
+     if (t.project_id && typeof t.project_id !== 'string') {
+       try { t.project_id = String(t.project_id); } catch(e) {}
+     }
+     // also normalize created/assigned user references to strings
+     if (t.user_id && typeof t.user_id !== 'string') { try { t.user_id = String(t.user_id); } catch(e) {} }
+     if (t.created_by && typeof t.created_by !== 'string') { try { t.created_by = String(t.created_by); } catch(e) {} }
+     return t;
+   });
    console.log("✅ Loaded tasks from backend:", sample.tasksMine);
 
-
-   
-    
     // Load users (for members list)
     try {
-      const usersData = await apiCall('/data/users');
+      const usersData = await window.apiCall('/data/users');
       sample.members = usersData.users || [];
     } catch (error) {
       // If user doesn't have permission to view users, use empty array
@@ -1077,13 +1016,19 @@ function fillKPIs(){
   ) : 0;
   const unreadNotifs = sample.notifs.filter(n => !n.read).length;
 
-  document.getElementById('kpiProjects').textContent = proj;
-  document.getElementById('kpiTasks').textContent = openTasks;
-  document.getElementById('kpiOnTrack').textContent = onTrack + '%';
-  document.getElementById('kpiNotifs').textContent = unreadNotifs;
+  // Guard DOM updates — some KPI elements may not exist in this layout
+  const elProjects = document.getElementById('kpiProjects');
+  const elTasks = document.getElementById('kpiTasks');
+  const elOnTrack = document.getElementById('kpiOnTrack');
+  const elNotifs = document.getElementById('kpiNotifs');
+
+  if (elProjects) elProjects.textContent = proj;
+  if (elTasks) elTasks.textContent = openTasks;
+  if (elOnTrack) elOnTrack.textContent = onTrack + '%';
+  if (elNotifs) elNotifs.textContent = unreadNotifs;
 }
 
-/* ------- Enhanced Functions ------- */
+  /* ------- Enhanced Functions ------- */
 
 // Timeline functionality
 function showProjectTimeline(projectId) {
@@ -1179,7 +1124,7 @@ async function addNewTask() {
     } else if (projectChoice && projectChoice.trim()) {
       // Create new project
       try {
-        const newProject = await apiCall('/data/projects', 'POST', {
+        const newProject = await window.apiCall('/data/projects', 'POST', {
           name: projectChoice.trim(),
           description: `Project for ${title}`,
           status: 'active',
@@ -1188,7 +1133,7 @@ async function addNewTask() {
         projectId = newProject.project._id || newProject.project.id;
         showToast('New project created!', 'success');
         // Refresh projects list
-        const projectsData = await apiCall('/data/projects');
+        const projectsData = await window.apiCall('/data/projects');
         sample.projects = projectsData.projects || [];
       } catch (error) {
         showToast('Failed to create project. Using offline mode.', 'warn');
@@ -1221,7 +1166,7 @@ async function addNewTask() {
     }
     
     try {
-      const newProject = await apiCall('/data/projects', 'POST', {
+      const newProject = await window.apiCall('/data/projects', 'POST', {
         name: projectName.trim(),
         description: `Project for ${title}`,
         status: 'active',
@@ -1230,7 +1175,7 @@ async function addNewTask() {
       projectId = newProject.project._id || newProject.project.id;
       showToast('New project created!', 'success');
       // Refresh projects list
-      const projectsData = await apiCall('/data/projects');
+      const projectsData = await window.apiCall('/data/projects');
       sample.projects = projectsData.projects || [];
     } catch (error) {
       showToast('Failed to create project. Using offline mode.', 'warn');
@@ -1283,7 +1228,7 @@ async function addNewTask() {
   
   try {
     // Create task via API
-    const newTaskData = await apiCall('/data/tasks', 'POST', {
+    const newTaskData = await window.apiCall('/data/tasks', 'POST', {
       title: title.trim(),
       description: description,
       project_id: projectId,
@@ -1295,52 +1240,17 @@ async function addNewTask() {
       notify_phone: notifyPhone ? notifyPhone.trim() : undefined
     });
     
-    // Add to local data
-    const newTask = {
-  id: newTaskData.task._id || newTaskData.task.id,
-  title,
-  project: sample.projects.find(p => (p._id || p.id) === projectId)?.name || 'Unknown Project',
-  project_id: projectId,
-  description,
-  progress: 0,
-  due: dueDate,
-  due_date: dueDate,
-  start_date: startDate,
-  priority: taskPriority,
-  status: 'todo',
-  estimated_hours: hours,
-  assignee: 'You',
-  created: newTaskData.task.created_at || new Date().toISOString()
-};
-
-    sample.tasksMine.push(newTask);
-    
-    // Add notification for new task
-    sample.notifs.unshift({
-      t: `📝 New task created: ${newTask.title}`,
-      kind: 'ok',
-      time: 'Now',
-      read: false,
-      id: Date.now() + 1
-    });
-    
-    // Add deadline notification if due soon
-    const daysUntil = getDaysUntilDeadline(dueDate);
-    if (daysUntil <= 7) {
-      sample.notifs.unshift({
-        t: `⏰ Task "${newTask.title}" is due in ${daysUntil} day${daysUntil !== 1 ? 's' : ''}`,
-        kind: 'warn',
-        time: 'Now',
-        read: false,
-        id: Date.now() + 2
-      });
+    // Refresh data from server so UI shows canonical server state
+    try {
+      await loadUserData();
+    } catch (e) {
+      console.warn('Failed to refresh after create, will use local update', e);
     }
-    
-    saveUserData(sample);
+
     showToast('Task created successfully and saved to server!', 'success');
     renderMain();
     updateNotifications();
-    
+    return;
   } catch (error) {
     showToast('Failed to save to server. Task saved locally.', 'warn');
     
@@ -1525,11 +1435,11 @@ async function submitCreateTaskForm(e){
     if (!name) { showToast('Project name is required', 'error'); return; }
     const description = document.getElementById('newProjectDesc')?.value || `Project for ${title}`;
     try {
-      const newProject = await apiCall('/data/projects', 'POST', { name, description, status:'active', priority:'medium' });
+      const newProject = await window.apiCall('/data/projects', 'POST', { name, description, status:'active', priority:'medium' });
       project_id = newProject.project._id || newProject.project.id;
 
       try {
-        const projectsData = await apiCall('/data/projects');
+        const projectsData = await window.apiCall('/data/projects');
         sample.projects = projectsData.projects || [];
       } catch {}
     } catch (err) {
@@ -1541,7 +1451,7 @@ async function submitCreateTaskForm(e){
   }
 
   try {
-    const newTaskData = await apiCall('/data/tasks', 'POST', {
+    const newTaskData = await window.apiCall('/data/tasks', 'POST', {
       title,
       description: data.description || '',
       project_id,
@@ -1553,24 +1463,31 @@ async function submitCreateTaskForm(e){
       notify_phone: (data.notify_phone || '').trim() || undefined
     });
 
-    const newTask = {
-  id: newTaskData.task._id || newTaskData.task.id,
-  title,
-  project: sample.projects.find(p => (p._id || p.id) === project_id)?.name || 'Unknown Project',
-  project_id,
-  description: data.description || '',
-  progress: 0,
-  due: due_date,
-  due_date,
-  start_date,
-  priority,
-  status: 'todo',
-  estimated_hours,
-  assignee: 'You',
-  created: newTaskData.task.created_at || new Date().toISOString()
-};
+    // Ensure UI reflects server state: refresh tasks & projects
+    try {
+      await loadUserData();
+    } catch (err) {
+      console.warn('Failed to refresh data after task create', err);
+      // fallback: merge the returned task into local sample (existing behavior)
+      const newTask = {
+        id: newTaskData.task._id || newTaskData.task.id,
+        title,
+        project: sample.projects.find(p => (p._id || p.id) === project_id)?.name || 'Unknown Project',
+        project_id,
+        description: data.description || '',
+        progress: 0,
+        due: due_date,
+        due_date,
+        start_date,
+        priority,
+        status: 'todo',
+        estimated_hours,
+        assignee: 'You',
+        created: newTaskData.task.created_at || new Date().toISOString()
+      };
+      sample.tasksMine.push(newTask);
+    }
 
-    sample.tasksMine.push(newTask);
     saveUserData(sample);
     showToast('Task created successfully!', 'success');
     closeCreateTaskModal();
@@ -1704,6 +1621,8 @@ function generateReport() {
   const byStatus = sample.tasksMine.reduce((acc,t)=>{ const s=(t.status||'todo').toLowerCase(); acc[s]=(acc[s]||0)+1; return acc;}, {});
 
   function bar(count,max){const pct=max?Math.round((count/max)*100):0; return `<div style="height:8px;background:rgba(255,255,255,.1);border-radius:999px;overflow:hidden;"><i style="display:block;height:100%;width:${pct}%;background:linear-gradient(90deg,var(--accent1),var(--accent2));"></i></div>`;}
+
+
 
   const maxCount = Math.max(1, ...Object.values({...byPriority, ...byStatus}));
 
