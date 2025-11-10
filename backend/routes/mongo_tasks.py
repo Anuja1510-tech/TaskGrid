@@ -1,9 +1,8 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from datetime import datetime
-from utils.mongo_db import tasks_col, users_col, to_str_id, oid
+from utils.mongo_db import tasks_col, to_str_id, oid
 
-mongo_tasks_bp = Blueprint('mongo_tasks', __name__)
+mongo_tasks_bp = Blueprint('mongo_tasks_bp', __name__)
 
 # ---------- Helper ----------
 def _task_public(doc):
@@ -60,7 +59,7 @@ def create_task():
 
 
 # ---------- GET TASKS ----------
-@app.route('/data/tasks', methods=['GET'])
+@mongo_tasks_bp.route('/tasks', methods=['GET'])
 @jwt_required()
 def get_tasks():
     user_id = get_jwt_identity()
