@@ -1175,7 +1175,7 @@ async function addNewTask() {
     const projectChoice = prompt(`Select existing project or create new:\n\n${projectsList}\n\nEnter project number (1-${sample.projects.length}) or type new project name:`);
     
     if (projectChoice && !isNaN(projectChoice) && projectChoice >= 1 && projectChoice <= sample.projects.length) {
-      projectId = sample.projects[parseInt(projectChoice) - 1].id;
+      projectId = (sample.projects[parseInt(projectChoice) - 1]._id || sample.projects[parseInt(projectChoice) - 1].id);
     } else if (projectChoice && projectChoice.trim()) {
       // Create new project
       try {
@@ -1185,7 +1185,7 @@ async function addNewTask() {
           status: 'active',
           priority: 'medium'
         });
-        projectId = newProject.project.id;
+        projectId = newProject.project._id || newProject.project.id;
         showToast('New project created!', 'success');
         // Refresh projects list
         const projectsData = await apiCall('/data/projects');
@@ -1227,7 +1227,7 @@ async function addNewTask() {
         status: 'active',
         priority: 'medium'
       });
-      projectId = newProject.project.id;
+      projectId = newProject.project._id || newProject.project.id;
       showToast('New project created!', 'success');
       // Refresh projects list
       const projectsData = await apiCall('/data/projects');
@@ -1297,22 +1297,22 @@ async function addNewTask() {
     
     // Add to local data
     const newTask = {
-      id: newTaskData.task.id,
-      title: title.trim(),
-      project: sample.projects.find(p => p.id === projectId)?.name || 'Unknown Project',
-      project_id: projectId,
-      description: description,
-      progress: 0,
-      due: dueDate,
-      due_date: dueDate,
-      start_date: startDate,
-      priority: taskPriority,
-      status: 'todo',
-      estimated_hours: hours,
-      assignee: 'You',
-      created: new Date().toISOString()
-    };
-    
+  id: newTaskData.task._id || newTaskData.task.id,
+  title,
+  project: sample.projects.find(p => (p._id || p.id) === projectId)?.name || 'Unknown Project',
+  project_id: projectId,
+  description,
+  progress: 0,
+  due: dueDate,
+  due_date: dueDate,
+  start_date: startDate,
+  priority: taskPriority,
+  status: 'todo',
+  estimated_hours: hours,
+  assignee: 'You',
+  created: newTaskData.task.created_at || new Date().toISOString()
+};
+
     sample.tasksMine.push(newTask);
     
     // Add notification for new task
@@ -1394,8 +1394,7 @@ async function addNewTask() {
 
 /* ------- Create Task Page ------- */
 function showCreateTaskForm(){
-  const projectsOptions = sample.projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
-
+  const projectsOptions = sample.projects.map(p => `<option value="${p._id || p.id}">${p.name}</option>`).join('');
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.id = 'createTaskOverlay';
@@ -1517,7 +1516,8 @@ async function submitCreateTaskForm(e){
 
   const priority = (data.priority || 'medium').toLowerCase();
   const estimated_hours = parseFloat(data.estimated_hours || '0') || 0;
-  let project_id = (data.project_id && data.project_id !== '__new__') ? parseInt(data.project_id) : null;
+  let project_id = (data.project_id && data.project_id !== '__new__') ? data.project_id : null;
+
 
   // Create project if needed
   if (!project_id) {
@@ -1526,7 +1526,8 @@ async function submitCreateTaskForm(e){
     const description = document.getElementById('newProjectDesc')?.value || `Project for ${title}`;
     try {
       const newProject = await apiCall('/data/projects', 'POST', { name, description, status:'active', priority:'medium' });
-      project_id = newProject.project.id;
+      project_id = newProject.project._id || newProject.project.id;
+
       try {
         const projectsData = await apiCall('/data/projects');
         sample.projects = projectsData.projects || [];
@@ -1553,21 +1554,22 @@ async function submitCreateTaskForm(e){
     });
 
     const newTask = {
-      id: newTaskData.task.id,
-      title,
-      project: sample.projects.find(p => p.id === project_id)?.name || 'Unknown Project',
-      project_id,
-      description: data.description || '',
-      progress: 0,
-      due: due_date,
-      due_date,
-      start_date,
-      priority,
-      status: 'todo',
-      estimated_hours,
-      assignee: 'You',
-      created: new Date().toISOString()
-    };
+  id: newTaskData.task._id || newTaskData.task.id,
+  title,
+  project: sample.projects.find(p => (p._id || p.id) === project_id)?.name || 'Unknown Project',
+  project_id,
+  description: data.description || '',
+  progress: 0,
+  due: due_date,
+  due_date,
+  start_date,
+  priority,
+  status: 'todo',
+  estimated_hours,
+  assignee: 'You',
+  created: newTaskData.task.created_at || new Date().toISOString()
+};
+
     sample.tasksMine.push(newTask);
     saveUserData(sample);
     showToast('Task created successfully!', 'success');
@@ -1709,7 +1711,7 @@ function generateReport() {
   const statusHtml = Object.entries(byStatus).map(([k,v])=>`<div><div style="display:flex;justify-content:space-between;"><span>${k}</span><span>${v}</span></div>${bar(v,maxCount)}</div>`).join('');
 
   const projectBreakdown = sample.projects.map(p=>{
-    const count = sample.tasksMine.filter(t=>t.project_id===p.id).length;
+    const count = sample.tasksMine.filter(t => t.project_id === (p._id || p.id)).length;
     const progress = p.get_progress ? p.get_progress() : (p.progress || 0);
     return `<div class="notif"><div style="flex:1;"><div><strong>${p.name}</strong></div><div style="color:var(--muted);font-size:12px;">Tasks: ${count} • Progress: ${progress}%${p.deadline?` • Deadline: ${formatDate(p.deadline)}`:''}</div></div></div>`;
   }).join('') || `<div class="empty-state"><i>📁</i><h3>No projects</h3></div>`;
