@@ -1,0 +1,5 @@
+# Find the commit hashes with git log, then revert each one:
+git log --oneline
+# for each <commit-hash> that introduced my edits:
+git revert <commit-hash>
+git push origin main

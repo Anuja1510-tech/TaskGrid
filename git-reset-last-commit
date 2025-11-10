@@ -1,0 +1,4 @@
+# Move branch back one commit, keep changes in working tree (so you can selectively re-add)
+git reset --soft HEAD~1
+# OR remove commit and working changes:
+git reset --hard HEAD~1

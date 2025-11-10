@@ -1,0 +1,2 @@
+git reset --hard <commit-before-my-changes>
+git push --force-with-lease origin main

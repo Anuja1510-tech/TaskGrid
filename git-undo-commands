@@ -1,0 +1,6 @@
+# Discard all local modifications (unstaged + staged) and reset working tree to last commit
+git status
+git restore --staged .            # unstage everything
+git restore .                     # discard working-tree changes
+# OR one-liner (hard reset)
+git reset --hard HEAD

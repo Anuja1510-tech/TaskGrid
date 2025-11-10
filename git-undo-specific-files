@@ -1,0 +1,8 @@
+git restore --source=HEAD --staged --worktree \
+  "d:/DBMS/frontend/all_frontend/DBMS-CP/js/config.js" \
+  "d:/DBMS/frontend/all_frontend/DBMS-CP/js/api.js" \
+  "d:/DBMS/frontend/all_frontend/DBMS-CP/dashboard/dashboard-functional.html" \
+  "d:/DBMS/frontend/all_frontend/DBMS-CP/login.html" \
+  "d:/DBMS/frontend/all_frontend/DBMS-CP/reports/analysis.html" \
+  "d:/DBMS/backend/routes/mongo_tasks.py" \
+  "d:/DBMS/backend/routes/mongo_data.py"
