@@ -586,6 +586,8 @@ function detectRole(){
 }
 
 let role = detectRole();
+// keep track of which section is active so renderMenu can mark it
+let currentSection = 'Projects';
 updateRoleUI();
 
 roleSwitch.addEventListener('change', ()=>{
@@ -624,19 +626,51 @@ function renderMenu(){
       ["Profile","/profile"]
     ]
   };
+
+  const icons = {
+    Tasks: '📋',
+    Projects: '📁',
+    Notifications: '🔔',
+    'Report Analysis': '📊',
+    Users: '👥',
+    Profile: '👤'
+  };
+
   const list = groups[role] || groups.Member;
+
+  // Build menu items using data-section attributes (no inline onclick)
   menuMount.innerHTML = `<h3>Menu</h3>` + list.map(([label]) =>
-    `<div class="item${label==='Projects'?' active':''}" onclick="navigateToSection('${label}')">${label}</div>`
+    `<div class="item" data-section="${label}">
+       <span style="margin-right:8px">${icons[label] || ''}</span>
+       <span class="menu-label">${label}</span>
+     </div>`
   ).join('');
+
+  // Attach click handlers and set active class based on currentSection
+  menuMount.querySelectorAll('.item').forEach(item => {
+    const section = item.getAttribute('data-section');
+    item.classList.toggle('active', section === currentSection || (section === 'Projects' && !currentSection));
+    item.addEventListener('click', (e) => {
+      // Update active styling
+      menuMount.querySelectorAll('.item').forEach(i => i.classList.remove('active'));
+      item.classList.add('active');
+
+      // Save active section and navigate
+      currentSection = section;
+      navigateToSection(section);
+    });
+  });
 }
 
-/* ------- Navigation Functions ------- */
+
 function navigateToSection(section) {
-  // Remove active class from all items
-  document.querySelectorAll('.item').forEach(item => item.classList.remove('active'));
-  // Add active class to clicked item
-  event.target.classList.add('active');
-  
+  // Keep the active highlight in sync (in case called programmatically)
+  currentSection = section;
+  menuMount.querySelectorAll('.item').forEach(i => {
+    i.classList.toggle('active', i.getAttribute('data-section') === section);
+  });
+
+  // Route to section logic (unchanged behavior)
   if (section === 'Profile') {
     showProfile();
   } else if (section === 'Notifications') {
@@ -1360,7 +1394,7 @@ function showCreateTaskForm(){
             <label>Estimated Hours</label>
             <input type="number" name="estimated_hours" min="0" step="0.5" placeholder="e.g., 4" />
           </div>
-          <div class="form-field full">
+          <div class="form-field">
             <label>SMS Number (optional)</label>
             <input type="tel" name="notify_phone" placeholder="+15555555555" />
           </div>
@@ -1532,7 +1566,7 @@ function updateNotifications() {
   const deadlineNotifs = [];
   
   overdueTasks.forEach(task => {
-    const days = Math.abs(getDaysUntilDeadline(task.due));
+    const days = Math.ceil((new Date() - new Date(task.due_date||task.due)) / (1000*60*60*24));
     deadlineNotifs.push({
       t: `🚨 OVERDUE: ${task.title} (${days} day${days !== 1 ? 's' : ''} overdue)`,
       kind: 'bad',
@@ -1632,7 +1666,7 @@ function generateReport() {
   const projectBreakdown = sample.projects.map(p=>{
     const count = sample.tasksMine.filter(t => t.project_id === (p._id || p.id)).length;
     const progress = p.get_progress ? p.get_progress() : (p.progress || 0);
-    return `<div class="notif"><div style="flex:1;"><div><strong>${p.name}</strong></div><div style="color:var(--muted);font-size:12px;">Tasks: ${count} • Progress: ${progress}%${p.deadline?` • Deadline: ${formatDate(p.deadline)}`:''}</div></div></div>`;
+    return `<div class="notif"><div style="flex:1;"><div><strong>${p.name}</strong></div><div style="color:var(--muted);font-size:12px;">Tasks: ${count} • Progress: ${progress}%${p.deadline?` • Deadline: ${formatDate(p.deadline)}`:''}</div></div>`;
   }).join('') || `<div class="empty-state"><i>📁</i><h3>No projects</h3></div>`;
 
   cardsMount.innerHTML = `
