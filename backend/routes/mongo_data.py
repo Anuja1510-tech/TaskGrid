@@ -44,13 +44,22 @@ def get_projects():
         else:
             # Normal user → only see own or assigned projects
             project_ids = set()
+            # tasks may store project_id as ObjectId or as string — normalize via oid()
             for t in tasks_col.find({'$or': [{'created_by': uid}, {'assigned_to': uid}]}):
-                if t.get('project_id'):
-                    project_ids.add(t['project_id'])
+                pid = t.get('project_id')
+                if not pid:
+                    continue
+                if isinstance(pid, ObjectId):
+                    project_ids.add(pid)
+                else:
+                    pid_oid = oid(pid)
+                    if pid_oid:
+                        project_ids.add(pid_oid)
+            # If project_ids empty this query will still allow owner matches
             cursor = projects_col.find({
                 '$or': [
                     {'owner_id': uid},
-                    {'_id': {'$in': list(project_ids)}}
+                    {'_id': {'$in': list(project_ids)}} if project_ids else {'_id': {'$exists': False}}
                 ]
             })
 
@@ -62,8 +71,14 @@ def get_projects():
             if 'owner_id' in d and isinstance(d['owner_id'], ObjectId):
                 d['owner_id'] = str(d['owner_id'])
 
-            # Add derived info
-            d['task_count'] = tasks_col.count_documents({'project_id': p['_id']})
+            # Count tasks where project_id may be stored as ObjectId or string
+            d['task_count'] = tasks_col.count_documents({
+                '$or': [
+                    {'project_id': p['_id']},
+                    {'project_id': str(p['_id'])},
+                    {'project_id': {'$exists': False}}  # keeps behavior when none; optional
+                ]
+            })
 
             # ✅ Fix: ensure correct ObjectId lookup for owner
             owner = None
@@ -89,8 +104,8 @@ def create_project():
     try:
         uid = oid(get_jwt_identity())
         user = users_col.find_one({'_id': uid})
-        if not user or user.get('role') not in ['admin', 'manager']:
-            return jsonify({'error': 'Insufficient permissions'}), 403
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
 
         data = request.get_json() or {}
         if not data.get('name'):
@@ -122,7 +137,12 @@ def create_project():
         # ✅ Convert ObjectIds to strings for JSON
         d = to_str_id(created)
         d['owner_id'] = str(d.get('owner_id')) if d.get('owner_id') else None
-        d['task_count'] = 0
+        d['task_count'] = tasks_col.count_documents({
+            '$or': [
+                {'project_id': created['_id']},
+                {'project_id': str(created['_id'])}
+            ]
+        })
 
         # Add readable owner name
         owner = users_col.find_one({'_id': uid})
