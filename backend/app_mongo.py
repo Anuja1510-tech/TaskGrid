@@ -3,14 +3,11 @@ from flask import Flask, jsonify
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 
+# Import blueprints and MongoDB utility
 from routes.mongo_auth import mongo_auth_bp
 from routes.mongo_tasks import mongo_tasks_bp
 from routes.mongo_data import mongo_data_bp
 from utils.mongo_db import init_mongo
-from routes.mongo_tasks import mongo_tasks_bp
-
-app.register_blueprint(mongo_tasks_bp, url_prefix="/data")
-
 
 
 def create_app():
@@ -32,10 +29,10 @@ def create_app():
     else:
         print("✅ MongoDB initialized successfully.")
 
-    # ✅ Register Blueprints
+    # ✅ Register Blueprints (only after app is defined)
     app.register_blueprint(mongo_auth_bp, url_prefix="/auth")
     app.register_blueprint(mongo_data_bp, url_prefix="/data")
-    app.register_blueprint(mongo_tasks_bp, url_prefix="/data")  # ✅ Fixed prefix
+    app.register_blueprint(mongo_tasks_bp, url_prefix="/data")
 
     # ✅ Root endpoint
     @app.route('/')
@@ -58,6 +55,7 @@ def create_app():
     return app
 
 
+# ---------- Main entry ----------
 if __name__ == '__main__':
     app = create_app()
     print('🚀 Starting TaskGrid with MongoDB...')
