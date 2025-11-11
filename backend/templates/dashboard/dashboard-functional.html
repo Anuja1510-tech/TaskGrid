@@ -325,7 +325,8 @@
 </div>
 <script>
 /* ------- API Configuration ------- */
-const API_BASE_URL = window.location.origin;
+// ✅ Always use backend root, even when inside /dashboard
+const API_BASE_URL = `${window.location.origin}`;
 let authToken = localStorage.getItem('taskgrid_token');
 
 // API Helper Functions
@@ -416,125 +417,71 @@ function updateProfileUI(user) {
 }
 
 // Load data from backend
+// ✅ Improved version — loads data instantly and handles partial failures safely
 async function loadUserData() {
+  if (!authToken) {
+    console.warn("⚠️ No token found. Redirecting to login.");
+    window.location.href = "/";
+    return;
+  }
+
   try {
-    if (!authToken) {
-      // Redirect to login if no token
-      window.location.href = '/';
-      return;
-    }
-    
-    // Load user profile (prefer local, then backend)
-    try {
-      const stored = localStorage.getItem('taskgrid_user');
-      if (stored) { try { setProfileFromUser(JSON.parse(stored)); } catch (e) {} }
-      const prof = await apiCall('/auth/profile');
-if (prof && prof.user) {
-  // Save user locally for future sessions
-  localStorage.setItem('taskgrid_user', JSON.stringify(prof.user));
-  
-  // Set profile info
-  setProfileFromUser(prof.user);
-  document.getElementById('topUserName').textContent = prof.user.first_name || prof.user.email;
-  
-  // Update topbar with real name and role
-  const r = uiRoleFromBackend(prof.user.role);
-  role = r;
-  if (roleSwitch) roleSwitch.value = r;
-  if (roleBadge) roleBadge.textContent = `Role: ${r}`;
-  document.title = `TaskGrid — ${prof.user.first_name || 'User'}'s Dashboard`;
-}
-    } catch (e) {
-      // keep defaults/local if profile fails
+    // --- Step 1: Load profile (from local or backend) ---
+    let user = null;
+    const stored = localStorage.getItem("taskgrid_user");
+    if (stored) {
+      try { user = JSON.parse(stored); } catch {}
     }
 
-    // Load dashboard data
-    const dashboardData = await apiCall('/data/dashboard');
-    
-    // Load projects
-    const projectsData = await apiCall('/data/projects');
-    sample.projects = projectsData.projects || projectsData.data || projectsData || [];
-    console.log("✅ Loaded projects from backend:", sample.projects);
+    if (!user) {
+      const prof = await apiCall("/auth/profile");
+      if (prof && prof.user) {
+        user = prof.user;
+        localStorage.setItem("taskgrid_user", JSON.stringify(user));
+      }
+    }
 
-    
-    // Load tasks
-   const tasksData = await apiCall('/data/tasks');
-   sample.tasksMine = tasksData.tasks || tasksData.data || tasksData || [];
-   console.log("✅ Loaded tasks from backend:", sample.tasksMine);
+    if (user) setProfileFromUser(user);
 
+    // --- Step 2: Load tasks first (critical path) ---
+    const tasksData = await apiCall("/data/tasks");
+    sample.tasksMine = tasksData.tasks || [];
+    console.log("✅ Loaded tasks:", sample.tasksMine);
 
-   
-    
-    // Load users (for members list)
+    // --- Step 3: Render tasks immediately ---
+    renderMain();
+    fillKPIs();
+
+    // --- Step 4: Load projects (secondary) ---
     try {
-      const usersData = await apiCall('/data/users');
+      const projectsData = await apiCall("/data/projects");
+      sample.projects = projectsData.projects || [];
+      console.log("✅ Loaded projects:", sample.projects);
+    } catch (err) {
+      console.warn("⚠️ Could not load projects:", err);
+    }
+
+    // --- Step 5: Load members list (optional) ---
+    try {
+      const usersData = await apiCall("/data/users");
       sample.members = usersData.users || [];
-    } catch (error) {
-      // If user doesn't have permission to view users, use empty array
+    } catch {
       sample.members = [];
     }
-    
-    // Initialize notifications and updates
-    sample.updates = [
-      { t: "Dashboard loaded successfully!", kind: "ok", time: "Now" }
-    ];
-    
-    sample.notifs = [
-      { t: "Welcome to TaskGrid! Your data is now synced with the server.", kind: "ok", time: "Now", read: false, id: Date.now() }
-    ];
-    
-    // Update UI
+
+    // --- Step 6: Updates, notifs, role, etc. ---
+    sample.updates = [{ t: "Dashboard synced!", kind: "ok", time: "Now" }];
+    sample.notifs = sample.notifs || [];
     updateRoleUI();
-    renderMain();
     renderRightRail();
     fillKPIs();
-    
+
   } catch (error) {
-    console.error('Failed to load user data:', error);
-    showToast('Failed to load data from server. Using offline mode.', 'warn');
-    
-    // Fallback to localStorage
-    const userId = localStorage.getItem('taskgrid_user_id') || 'user_' + Date.now();
-    localStorage.setItem('taskgrid_user_id', userId);
-    
-    const userData = localStorage.getItem(`taskgrid_data_${userId}`);
-    if (userData) {
-      sample = JSON.parse(userData);
-    } else {
-      // Initialize with empty data for new users
-      sample = {
-        projects: [],
-        tasksMine: [],
-        members: [
-          { id: 1, first_name: "You", last_name: "", role: "team_member", avatar: "YU", status: "online" }
-        ],
-        updates: [
-          { t: "Welcome to TaskGrid! Create your first task to get started.", kind: "ok", time: "Now" }
-        ],
-        notifs: [
-          { t: "Welcome! Start by creating your first task with a deadline.", kind: "ok", time: "Now", read: false, id: Date.now() }
-        ],
-        profile: {
-          name: "User",
-          email: "user@taskgrid.com",
-          role: "team_member",
-          joinDate: new Date().toISOString().split('T')[0],
-          avatar: "YU",
-          preferences: {
-            notifications: true,
-            emailAlerts: true,
-            theme: "dark"
-          }
-        }
-      };
-    }
-    
-    updateRoleUI();
-    renderMain();
-    renderRightRail();
-    fillKPIs();
+    console.error("❌ Failed to load data:", error);
+    setTimeout(loadUserData, 3000); // retry silently
   }
 }
+
 
 function saveUserData(data) {
   // Save to localStorage as backup

@@ -11,6 +11,7 @@ from routes.mongo_tasks import mongo_tasks_bp
 from utils.mongo_db import init_mongo
 from utils.notifications import start_scheduler
 
+app = Flask(__name__, static_folder="static", template_folder="templates", static_url_path="/static")
 
 def create_app():
     app = Flask(__name__,
@@ -56,20 +57,24 @@ def create_app():
 
     @app.route('/dashboard')
     def serve_dashboard():
-        try:
-            verify_jwt_in_request_optional()
-            uid = get_jwt_identity()
-            if not uid:
-                return redirect(url_for('serve_landing'))
-        except Exception:
+      try:
+        verify_jwt_in_request_optional()
+        uid = get_jwt_identity()
+        if not uid:
             return redirect(url_for('serve_landing'))
+      except Exception:
+        return redirect(url_for('serve_landing'))
 
-        # ✅ Render dashboard page correctly
-        return render_template('dashboard/dashboard-functional.html')
-    # ✅ Fix redirect for old dashboard path
-    @app.route('/dashboard/dashboard-functional.html')
-    def dashboard_redirect_fix():
-        return redirect(url_for('serve_dashboard'))
+    return render_template('dashboard/dashboard-functional.html')
+
+@app.route('/dashboard/<path:subpath>')
+def serve_dashboard_subpath(subpath):
+    """Catch-all to prevent 404 or HTML mismatches inside dashboard"""
+    return render_template('dashboard/dashboard-functional.html')
+
+@app.route('/dashboard/dashboard-functional.html')
+def dashboard_redirect_fix():
+    return redirect(url_for('serve_dashboard'))
 
 
 
