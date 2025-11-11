@@ -7,7 +7,7 @@ from models.work_log_model import WorkLog
 from utils.db import db
 from datetime import datetime, date
 from sqlalchemy import and_, or_, func
-from utils.notifications import schedule_task_due_sms
+
 
 data_bp = Blueprint('data', __name__)
 

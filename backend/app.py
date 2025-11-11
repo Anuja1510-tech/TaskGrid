@@ -50,55 +50,6 @@ def create_app():
 
     mail.init_app(app)
 
-    # -------------------------------
-    # Automated Deadline Check
-    # -------------------------------
-    def send_deadline_alerts():
-        """Send SMS + Email reminders for tasks due within 24 hours"""
-        now = datetime.utcnow()
-        next_24h = now + timedelta(hours=24)
-
-        tasks_due = db.tasks.find({
-            "due_date": {"$gte": now, "$lte": next_24h},
-            "status": {"$ne": "completed"}
-        })
-
-        
-
-        for t in tasks_due:
-            user = db.users.find_one({"_id": t.get("user_id")})
-            if not user:
-                continue
-
-            task_name = t.get("title", "Untitled Task")
-            due_str = t.get("due_date").strftime("%Y-%m-%d %H:%M")
-            email = user.get("email")
-            phone = user.get("phone")
-
-            message_text = f"⏰ Reminder: Your task '{task_name}' is due on {due_str}. Please update your progress in TaskGrid."
-
-            # Send Email
-            if email:
-                try:
-                    from flask_mail import Message
-                    msg = Message("TaskGrid Reminder: Task Deadline Approaching", recipients=[email], body=message_text)
-                    mail.send(msg)
-                    print(f"✅ Email sent to {email}")
-                except Exception as e:
-                    print(f"❌ Failed to send email: {e}")
-
-            # Send SMS
-            if phone:
-                try:
-                    client.messages.create(
-                        body=message_text,
-                        from_=app.config['TWILIO_FROM'],
-                        to=phone
-                    )
-                    print(f"📱 SMS sent to {phone}")
-                except Exception as e:
-                    print(f"❌ Failed to send SMS: {e}")
-
     scheduler.add_job(lambda: send_deadline_alerts(app, db, mail), 'interval', hours=1)
     scheduler.start()
 

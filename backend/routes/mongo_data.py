@@ -11,7 +11,6 @@ from utils.mongo_db import (
     to_str_id,
     oid,
 )
-from utils.notifications import schedule_task_due_sms
 
 mongo_data_bp = Blueprint('mongo_data', __name__)
 
