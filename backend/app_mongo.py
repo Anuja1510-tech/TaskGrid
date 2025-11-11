@@ -14,7 +14,7 @@ def create_app():
                 static_folder="static",
                 template_folder="templates")
 
-    # ✅ Only allow frontend served from same origin
+    # ✅ Allow requests from same origin (your frontend)
     CORS(app, supports_credentials=True)
 
     app.config['SECRET_KEY'] = 'your-secret-key-change-in-production'
@@ -28,16 +28,25 @@ def create_app():
     else:
         print("✅ MongoDB initialized successfully.")
 
+    # ✅ Register API routes
     app.register_blueprint(mongo_auth_bp, url_prefix="/auth")
     app.register_blueprint(mongo_data_bp, url_prefix="/data")
     app.register_blueprint(mongo_tasks_bp, url_prefix="/data")
 
-    # ✅ Serve Landing Page
+    # ---------- FRONTEND ROUTES ----------
+
     @app.route('/')
     def serve_index():
         return render_template('index.html')
 
-    # ✅ Serve Dashboard Page
+    @app.route('/login')
+    def serve_login():
+        return render_template('login.html')
+
+    @app.route('/signup')
+    def serve_signup():
+        return render_template('signup.html')
+
     @app.route('/dashboard')
     def serve_dashboard():
         return render_template('dashboard-functional.html')
@@ -51,6 +60,11 @@ def create_app():
     @app.route('/health')
     def health():
         return jsonify({'status': 'healthy', 'message': 'TaskGrid API with MongoDB is running'}), 200
+
+    # ✅ Custom 404 page
+    @app.errorhandler(404)
+    def not_found(e):
+        return render_template('404.html'), 404
 
     return app
 
