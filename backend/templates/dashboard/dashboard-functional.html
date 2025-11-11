@@ -420,7 +420,7 @@ async function loadUserData() {
   try {
     if (!authToken) {
       // Redirect to login if no token
-      window.location.href = '../landing page/2-working.html';
+      window.location.href = '/';
       return;
     }
     
@@ -2052,7 +2052,7 @@ function logout(){
   localStorage.clear();
   showToast('Logged out successfully!', 'success');
   setTimeout(() => {
-    window.location.href = '../landing page/2-working.html';
+     window.location.href = '/';
   }, 1000);
 }
 

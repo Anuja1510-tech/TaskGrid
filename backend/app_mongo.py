@@ -36,35 +36,44 @@ def create_app():
     # ---------- FRONTEND ROUTES ----------
 
     @app.route('/')
-    def serve_index():
-        return render_template('index.html')
+    def serve_landing():
+        """Landing page"""
+        return render_template('landing_page/2-working.html')
 
     @app.route('/login')
     def serve_login():
-        return render_template('login.html')
+        """Login page"""
+        return render_template('signup/login.html')
 
     @app.route('/signup')
     def serve_signup():
-        return render_template('signup.html')
+        """Signup page"""
+        return render_template('signup/signup.html')
 
     @app.route('/dashboard')
     def serve_dashboard():
-        return render_template('dashboard-functional.html')
+        """Dashboard page"""
+        return render_template('dashboard/dashboard-functional.html')
 
-    # ✅ Serve any other static files (JS, CSS, images)
-    @app.route('/static/<path:path>')
-    def serve_static(path):
-        return send_from_directory('static', path)
+    @app.route('/reports')
+    def serve_reports():
+        """Reports page"""
+        return render_template('reports/analysis.html')
 
-    # ✅ Health check
-    @app.route('/health')
-    def health():
-        return jsonify({'status': 'healthy', 'message': 'TaskGrid API with MongoDB is running'}), 200
+    @app.route('/notifications')
+    def serve_notifications():
+        """Notification page"""
+        return render_template('notification.html')
 
-    # ✅ Custom 404 page
+    # ---------- 404 PAGE ----------
     @app.errorhandler(404)
     def not_found(e):
         return render_template('404.html'), 404
+
+    # ---------- Health Check ----------
+    @app.route('/health')
+    def health():
+        return jsonify({'status': 'healthy', 'message': 'TaskGrid API with MongoDB is running'}), 200
 
     return app
 
