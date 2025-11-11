@@ -2,7 +2,7 @@
 from flask import Flask, jsonify, render_template, redirect, url_for
 from flask_cors import CORS
 from flask_jwt_extended import (
-    JWTManager, verify_jwt_in_request_optional, get_jwt_identity
+    JWTManager, verify_jwt_in_request, get_jwt_identity
 )
 from flask_mail import Mail
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -129,12 +129,14 @@ def create_app():
     @app.route('/dashboard')
     def serve_dashboard():
         try:
-            verify_jwt_in_request_optional()
-            uid = get_jwt_identity()
-            if not uid:
-                return redirect(url_for('serve_landing'))
+         verify_jwt_in_request()
+         uid = get_jwt_identity()
         except Exception:
-            return redirect(url_for('serve_landing'))
+         uid = None
+
+        if not uid:
+          return redirect(url_for('serve_landing'))
+
         return render_template('dashboard/dashboard-functional.html')
 
     # ✅ Allow dashboard subpages to load correctly
