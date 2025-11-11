@@ -644,6 +644,7 @@ roleSwitch.addEventListener('change', ()=>{
   renderMain();
 });
  /* ------- RENDER MAIN FUNCTION ------- */
+/* ------- RENDER MAIN FUNCTION ------- */
 function renderMain() {
   const mount = document.getElementById('cardsMount');
   mount.innerHTML = '';
@@ -663,6 +664,8 @@ function renderMain() {
           <h3>No tasks yet</h3>
           <p>Click <b>+ Add Task</b> above to create your first task.</p>
         </div>`;
+      // Append quick actions even if no tasks
+      mount.appendChild(AdminPanel());
       return;
     }
 
@@ -671,6 +674,10 @@ function renderMain() {
       const card = TaskCard(t);
       mount.appendChild(card);
     });
+
+    // ✅ Add Quick Actions at bottom
+    mount.appendChild(AdminPanel());
+
   }, 300);
 }
 
@@ -1017,6 +1024,28 @@ function TaskCard(t){
   el.style.gridColumn = 'span 6';
   return el;
 }
+/* ------- Admin Panel: Quick Actions ------- */
+function AdminPanel() {
+  const el = document.createElement('div');
+  el.className = 'card';
+  el.style.gridColumn = '1 / -1';
+  el.innerHTML = `
+    <div class="section-title" style="margin-bottom:8px;">
+      <h2>Quick Actions</h2>
+      <span class="chip">Enhanced</span>
+    </div>
+    <div style="display:flex; gap:12px; flex-wrap:wrap;">
+      <button class="btn-ghost" onclick="showCreateTaskForm()">➕ Add Task</button>
+      <button class="btn-ghost" onclick="showMembers()">👥 View Members</button>
+      <button class="btn-ghost" onclick="generateReport()">📊 Generate Report</button>
+      <button class="btn-ghost" onclick="showDeadlines()">📅 View Deadlines</button>
+      <button class="btn-ghost" onclick="exportData()">💾 Export Data</button>
+      <button class="btn-ghost" onclick="showProfile()">👤 Profile</button>
+    </div>
+  `;
+  return el;
+}
+
 function editTaskProgress(taskId, currentProgress) {
   const newVal = prompt(`Enter new progress (0–100):`, currentProgress);
   if (newVal === null) return; // Cancelled
