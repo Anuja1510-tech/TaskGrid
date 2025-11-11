@@ -1,4 +1,5 @@
 # TaskGrid Flask Application (MongoDB version)
+from flask import request
 from flask import Flask, jsonify, render_template, redirect, url_for
 from flask_cors import CORS
 from flask_jwt_extended import (
@@ -38,19 +39,20 @@ def create_app():
     
 # Email Configuration (Gmail only)
 # -------------------------------
+    import os
     app.config.update(
-     MAIL_SERVER='smtp.gmail.com',
-     MAIL_PORT=587,
-     MAIL_USE_TLS=True,
-     MAIL_USERNAME='your_email@gmail.com',       # ✅ your Gmail
-     MAIL_PASSWORD='your_app_password',          # ✅ 16-char app password from Google
-     MAIL_DEFAULT_SENDER=('TaskGrid', 'your_email@gmail.com')
-     )
+        MAIL_SERVER='smtp.gmail.com',
+        MAIL_PORT=587,
+        MAIL_USE_TLS=True,
+        MAIL_USERNAME=os.getenv('MAIL_USERNAME'),
+        MAIL_PASSWORD=os.getenv('MAIL_PASSWORD'),
+        MAIL_DEFAULT_SENDER=('TaskGrid', os.getenv('MAIL_USERNAME'))
+    )
 
 
     mail.init_app(app)
 
-    scheduler.add_job(lambda: send_deadline_alerts(app, db, mail), 'interval', hours=1)
+    scheduler.add_job(func=lambda: send_deadline_alerts(app, db, mail), trigger='interval', hours=1)
     scheduler.start()
 
     if db is None:

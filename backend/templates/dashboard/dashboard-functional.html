@@ -432,7 +432,7 @@ async function loadUserData() {
     window.location.href = "/";
     return;
   }
-
+   
   try {
     // --- Step 1: Load profile (from local or backend) ---
     let user = null;
@@ -452,9 +452,40 @@ async function loadUserData() {
     if (user) setProfileFromUser(user);
 
     // --- Step 2: Load tasks first (critical path) ---
-    const tasksData = await apiCall("/data/tasks");
-    sample.tasksMine = tasksData.tasks || [];
-    console.log("✅ Loaded tasks:", sample.tasksMine);
+    // --- Step 2: Load tasks first (critical path) ---
+const tasksData = await apiCall("/data/tasks");
+const rawTasks = tasksData.tasks || [];
+
+// 🔄 Normalize server task objects to match UI expectations
+sample.tasksMine = rawTasks.map(t => ({
+  id: t._id || t.id,
+  _id: t._id || t.id,
+  title: t.title || "Untitled Task",
+  description: t.description || "",
+  status: (t.status || "todo").toLowerCase(),
+  priority: (t.priority || "medium").toLowerCase(),
+  progress: Number(t.progress || 0),
+  // Normalize dates
+  start_date: t.start_date || t.startDate || null,
+  due_date: t.due_date || t.dueDate || null,
+  due: t.due_date || t.dueDate || t.due || null,
+  // Project association
+  project_id: t.project_id || t.projectId || t.project_id_str || null,
+  project: t.project_name || t.project || "Unknown Project",
+  // Assignee
+  assignee: t.assignee || t.assignee_name || "You",
+  assignee_name: t.assignee_name || t.assignee || "You",
+  // Misc
+  estimated_hours: Number(t.estimated_hours || 0),
+  created: t.created_at || new Date().toISOString()
+}));
+
+console.log("✅ Normalized tasks:", sample.tasksMine);
+
+// --- Step 3: Render tasks immediately ---
+renderMain();
+fillKPIs();
+
 
     // --- Step 3: Render tasks immediately ---
     renderMain();
@@ -1265,17 +1296,21 @@ async function addNewTask() {
   
   try {
     // Create task via API
-    const newTaskData = await apiCall('/data/tasks', 'POST', {
-      title: title.trim(),
-      description: description,
-      project_id: projectId,
-      priority: taskPriority,
-      estimated_hours: hours,
-      start_date: startDate,
-      due_date: dueDate,
-      status: 'todo',
-      notify_phone: notifyPhone ? notifyPhone.trim() : undefined
-    });
+    const newTaskData = await apiCall('/data/tasks', {
+  method: 'POST',
+  body: JSON.stringify({
+    title: title.trim(),
+    description,
+    project_id: projectId,
+    priority: taskPriority,
+    estimated_hours: hours,
+    start_date: startDate,
+    due_date: dueDate,
+    status: 'todo',
+    notify_phone: notifyPhone ? notifyPhone.trim() : undefined
+  })
+});
+
     
     // Add to local data
     const newTask = {
@@ -1509,7 +1544,10 @@ async function submitCreateTaskForm(e){
     if (!name) { showToast('Project name is required', 'error'); return; }
     const description = document.getElementById('newProjectDesc')?.value || `Project for ${title}`;
     try {
-      const newProject = await apiCall('/data/projects', 'POST', { name, description, status:'active', priority:'medium' });
+      const newProject = await apiCall('/data/projects', {
+  method:'POST',
+  body: JSON.stringify({ name, description, status:'active', priority:'medium' })
+});
       project_id = newProject.project._id || newProject.project.id;
 
       try {
@@ -1525,17 +1563,21 @@ async function submitCreateTaskForm(e){
   }
 
   try {
-    const newTaskData = await apiCall('/data/tasks', 'POST', {
-      title,
-      description: data.description || '',
-      project_id,
-      priority,
-      estimated_hours,
-      start_date,
-      due_date,
-      status: 'todo',
-      notify_phone: (data.notify_phone || '').trim() || undefined
-    });
+    const newTaskData = await apiCall('/data/tasks', {
+  method: 'POST',
+  body: JSON.stringify({
+    title,
+    description: data.description || '',
+    project_id,
+    priority,
+    estimated_hours,
+    start_date,
+    due_date,
+    status: 'todo',
+    notify_phone: (data.notify_phone || '').trim() || undefined
+  })
+});
+
 
     const newTask = {
       id: newTaskData.task.id,
