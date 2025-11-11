@@ -111,7 +111,21 @@ def get_tasks():
             return jsonify({"tasks": []}), 200
 
         cursor = tasks_col.find({'$or': ors})
-        tasks = [ to_str_id(t) for t in cursor ]
+        tasks = [to_str_id(t) for t in cursor]
         return jsonify({"tasks": tasks}), 200
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+# ---------- COMPATIBILITY ALIAS ----------
+@mongo_tasks_bp.route('/data/tasks', methods=['GET', 'POST'])
+@jwt_required()
+def alias_tasks_data():
+    """
+    Alias for /tasks (GET/POST) to support frontend routes calling /data/tasks.
+    """
+    if request.method == 'GET':
+        return get_tasks()
+    elif request.method == 'POST':
+        return create_task()

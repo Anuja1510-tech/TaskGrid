@@ -7,6 +7,10 @@ from routes.mongo_auth import mongo_auth_bp
 from routes.mongo_tasks import mongo_tasks_bp
 from routes.mongo_data import mongo_data_bp
 from utils.mongo_db import init_mongo
+from routes.mongo_tasks import mongo_tasks_bp
+
+app.register_blueprint(mongo_tasks_bp, url_prefix="/data")
+
 
 
 def create_app():
