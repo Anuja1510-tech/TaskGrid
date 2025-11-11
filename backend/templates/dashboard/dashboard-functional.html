@@ -330,39 +330,47 @@ const API_BASE_URL = `${window.location.origin}`;
 let authToken = localStorage.getItem('taskgrid_token');
 
 // API Helper Functions
-async function apiCall(endpoint, method = 'GET', data = null) {
+// ✅ Robust API helper — handles invalid JSON & wrong paths silently
+async function apiCall(path, options = {}) {
+  const token = localStorage.getItem("taskgrid_token");
   const headers = {
-    'Content-Type': 'application/json',
+    "Content-Type": "application/json",
+    ...(options.headers || {}),
   };
-  
-  if (authToken) {
-    headers['Authorization'] = `Bearer ${authToken}`;
-  }
-  
-  const config = {
-    method,
-    headers,
-  };
-  
-  if (data) {
-    config.body = JSON.stringify(data);
-  }
-  
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  // Normalize path to absolute URL
+  const url = path.startsWith("http")
+    ? path
+    : `${window.location.origin}${path.startsWith("/") ? path : "/" + path}`;
+
   try {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
-    const result = await response.json();
-    
-    if (!response.ok) {
-      throw new Error(result.error || 'API request failed');
+    const res = await fetch(url, { ...options, headers });
+    const text = await res.text();
+
+    // If Flask returned an HTML page instead of JSON, ignore it silently
+    if (text.trim().startsWith("<!DOCTYPE") || text.trim().startsWith("<html")) {
+      console.warn(`⚠️ HTML response instead of JSON for ${path}`);
+      return {};
     }
-    
-    return result;
-  } catch (error) {
-    console.error('API Error:', error);
-    showToast(error.message || 'Network error occurred', 'error');
-    throw error;
+
+    if (!res.ok) {
+      console.warn("⚠️ API call failed:", path, res.status);
+      return {};
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch (err) {
+      console.warn(`⚠️ Non-JSON response for ${path}:`, text.slice(0, 60));
+      return {};
+    }
+  } catch (err) {
+    console.error(`❌ Network error for ${path}:`, err);
+    return {};
   }
 }
+
 
 /* ------- User Data Management ------- */
 let sample = {
@@ -971,11 +979,10 @@ function AdminPanel(){
 }
 
 /* ------- Main area ------- */
-function renderMain(){
+function renderMain() {
   cardsMount.innerHTML = '';
-  
+
   if (sample.tasksMine.length === 0 && sample.projects.length === 0) {
-    // Show empty state for new users
     cardsMount.innerHTML = `
       <div class="empty-state">
         <i>✅</i>
@@ -986,26 +993,24 @@ function renderMain(){
     `;
     return;
   }
-  
-  if(role==='Admin'){
+
+  if (role === 'Admin') {
     sectionTitle.textContent = "Workspace Projects";
     sample.projects.forEach(p => cardsMount.appendChild(ProjectCard(p)));
     cardsMount.appendChild(AdminPanel());
-  }else if(role==='Manager'){
+  } 
+  else if (role === 'Manager') {
     sectionTitle.textContent = "Projects & Team Tasks";
     sample.projects.forEach(p => cardsMount.appendChild(ProjectCard(p)));
     sample.tasksMine.forEach(t => cardsMount.appendChild(TaskCard(t)));
-  }else{
+    cardsMount.appendChild(AdminPanel()); // ✅ one admin panel only for Manager
+  } 
+  else {
     sectionTitle.textContent = "Your Tasks";
     sample.tasksMine.forEach(t => cardsMount.appendChild(TaskCard(t)));
+    // ✅ Members don’t get admin panel
   }
-  
-  // Always show admin panel for easy access
-  if (sample.tasksMine.length > 0 || sample.projects.length > 0) {
-    cardsMount.appendChild(AdminPanel());
-  }
-  
-  // Update notifications after rendering
+
   updateNotifications();
 }
 
