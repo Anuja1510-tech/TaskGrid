@@ -636,8 +636,6 @@ function detectRole(){
   return r;
 }
 
-let role = detectRole();
-updateRoleUI();
 
 roleSwitch.addEventListener('change', ()=>{
   role = roleSwitch.value;
@@ -645,6 +643,39 @@ roleSwitch.addEventListener('change', ()=>{
   renderMenu();
   renderMain();
 });
+ /* ------- RENDER MAIN FUNCTION ------- */
+function renderMain() {
+  const mount = document.getElementById('cardsMount');
+  mount.innerHTML = '';
+
+  // 🟣 Show loading spinner while tasks load
+  mount.innerHTML = `<div class="empty-state"><i>⏳</i><p>Loading tasks...</p></div>`;
+
+  // Wait a short delay (for smoother transitions)
+  setTimeout(() => {
+    mount.innerHTML = '';
+
+    // 🔸 Case 1: No tasks found
+    if (!sample.tasksMine || sample.tasksMine.length === 0) {
+      mount.innerHTML = `
+        <div class="empty-state">
+          <i>🗒️</i>
+          <h3>No tasks yet</h3>
+          <p>Click <b>+ Add Task</b> above to create your first task.</p>
+        </div>`;
+      return;
+    }
+
+    // 🔹 Case 2: Tasks found
+    sample.tasksMine.forEach(t => {
+      const card = TaskCard(t);
+      mount.appendChild(card);
+    });
+  }, 300);
+}
+
+let role = detectRole();
+updateRoleUI();
 
 function updateRoleUI(){
   roleBadge.textContent = `Role: ${role}`;
@@ -2276,6 +2307,7 @@ document.addEventListener('DOMContentLoaded', async function() {
   console.log('✅ All tasks require start date and due date!');
   console.log('✅ Data automatically syncs with server!');
 });
+
 </script>
 </body>
 </html>
