@@ -79,40 +79,32 @@ def get_tasks():
         uid = get_jwt_identity()
         user_oid = oid(uid)
 
-        # Try to resolve username for extra matching (covers tasks stored with assignee name)
+        # Resolve username for matching
         username = None
-        try:
-            if user_oid:
-                usr = users_col.find_one({'_id': user_oid})
-                if usr:
-                    username = usr.get('username')
-        except Exception:
-            username = None
-
-        # Build a robust $or query that checks both ObjectId and string forms,
-        # and also matches the assignee human-readable name when available.
-        ors = []
         if user_oid:
-            ors.extend([
-                {'user_id': user_oid},
-                {'created_by': user_oid},
-                {'assigned_to': user_oid},
-            ])
-        ors.extend([
+            user_doc = users_col.find_one({'_id': user_oid})
+            if user_doc:
+                username = user_doc.get('username')
+
+        # Build flexible $or query to catch both ObjectId and string representations
+        ors = [
+            {'user_id': {'$in': [user_oid, uid]}},
+            {'created_by': {'$in': [user_oid, uid]}},
+            {'assigned_to': {'$in': [user_oid, uid]}},
             {'user_id_str': str(uid)},
             {'created_by_str': str(uid)},
             {'assigned_to_str': str(uid)},
-        ])
+        ]
+
+        # Also match by assignee username if present
         if username:
             ors.append({'assignee': username})
 
-        # Fallback: if ors is empty (shouldn't normally happen), return no tasks
-        if not ors:
-            return jsonify({"tasks": []}), 200
-
-        cursor = tasks_col.find({'$or': ors})
+        # Query and sort by creation time (newest first)
+        cursor = tasks_col.find({'$or': ors}).sort('created_at', -1)
         tasks = [to_str_id(t) for t in cursor]
-        return jsonify({"tasks": tasks}), 200
+
+        return jsonify({'tasks': tasks}), 200
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -122,10 +114,8 @@ def get_tasks():
 @mongo_tasks_bp.route('/data/tasks', methods=['GET', 'POST'])
 @jwt_required()
 def alias_tasks_data():
-    """
-    Alias for /tasks (GET/POST) to support frontend routes calling /data/tasks.
-    """
+    """Alias for /tasks endpoint"""
     if request.method == 'GET':
         return get_tasks()
-    elif request.method == 'POST':
-        return create_task()
+    return create_task()
+

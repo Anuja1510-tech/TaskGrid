@@ -280,8 +280,8 @@
         <a href="#home" onclick="scrollToSection('home')">Home</a>
         <a href="#learn" onclick="scrollToSection('learn')">About</a>
         <a href="#contact" onclick="scrollToSection('contact')">Contact</a>
-        <a href="../dashboard/dashboard-functional.html">Dashboard</a>
-        <a href="../signup/signup.html">Sign Up</a>
+        <a href="/dashboard">Dashboard</a>
+        <a href="/signup">Sign Up</a>
         <button id="modeToggle" class="toggle" aria-label="Toggle dark/light">🌙</button>
       </div>
     </div>
@@ -426,8 +426,9 @@
       <div style="display:flex; gap:16px;">
         <a href="#learn" onclick="scrollToSection('learn')">About</a>
         <a href="#contact" onclick="scrollToSection('contact')">Contact</a>
-        <a href="../profile setting/profile.html">Profile</a>
-        <a href="../project/project.html">Projects</a>
+        <a href="/profile">Profile</a>
+        <a href="/project">Projects</a>
+
       </div>
     </div>
   </footer>
@@ -481,7 +482,9 @@
 <script src="./js/config.js"></script>
 <script src="./js/api.js"></script>
 
+  
   <script>
+    
     /* ------------------------- Configuration ------------------------- */
     const API_BASE_URL = window.location.origin;
 
@@ -517,9 +520,10 @@
       }
     }
 
-    function openDashboard() {
-      window.location.href = '../dashboard/dashboard-functional.html';
+   function openDashboard() {
+     window.location.href = '/dashboard';
     }
+
 
     function showFeatureDetail(feature) {
       showToast(`Learn more about ${feature} - Coming soon!`, 'info');
@@ -699,8 +703,9 @@
 
       // Signup button
       $("#signupBtn").addEventListener("click", () => {
-        window.location.href = '../signup/signup.html';
-      });
+           window.location.href = '/signup';
+         });
+
 
       // Video modal
       $("#openVideo").addEventListener("click", () => {
