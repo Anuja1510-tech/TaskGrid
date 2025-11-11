@@ -65,10 +65,12 @@ def create_app():
             return redirect(url_for('serve_landing'))
 
         # ✅ Render dashboard page correctly
-        return render_template('/dashboard')
+        return render_template('dashboard/dashboard-functional.html')
+    # ✅ Fix redirect for old dashboard path
     @app.route('/dashboard/dashboard-functional.html')
     def dashboard_redirect_fix():
-     return redirect(url_for('serve_dashboard'))
+        return redirect(url_for('serve_dashboard'))
+
 
 
     @app.route('/reports')

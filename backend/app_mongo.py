@@ -53,7 +53,7 @@ def create_app():
     @app.route('/dashboard')
     def serve_dashboard():
         """Dashboard page"""
-        return render_template('/dashboard')
+        return render_template('dashboard/dashboard-functional.html')
 
     @app.route('/reports')
     def serve_reports():
