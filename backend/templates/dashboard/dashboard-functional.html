@@ -947,7 +947,7 @@ function TaskCard(t){
     <div class="progress"><i style="width:${progress}%"></i></div>
     <div class="assignees">
       <span class="pill">${assigneeName}</span>
-      <span class="pill">Progress ${progress}%</span>
+      <span class="pill editable-progress" onclick="editTaskProgress(${t.id}, ${progress})">Progress ${progress}%</span>
       <span class="pill" onclick="updateTaskProgress(${t.id})">📈 Update</span>
       <span class="pill" onclick="assignTask(${t.id})">👥 Assign</span>
     </div>
@@ -955,6 +955,36 @@ function TaskCard(t){
   el.style.gridColumn = 'span 6';
   return el;
 }
+function editTaskProgress(taskId, currentProgress) {
+  const newVal = prompt(`Enter new progress (0–100):`, currentProgress);
+  if (newVal === null) return; // Cancelled
+  const newProgress = parseInt(newVal);
+  if (isNaN(newProgress) || newProgress < 0 || newProgress > 100) {
+    showToast('Invalid progress value. Enter between 0 and 100.', 'error');
+    return;
+  }
+
+  const task = sample.tasksMine.find(t => t.id === taskId);
+  if (!task) return;
+
+  task.progress = newProgress;
+  if (newProgress >= 100) {
+    task.status = 'completed';
+    sample.notifs.unshift({
+      t: `✅ Task completed: ${task.title}`,
+      kind: 'ok',
+      time: 'Now',
+      read: false,
+      id: Date.now()
+    });
+  }
+
+  saveUserData(sample);
+  showToast(`Progress updated to ${newProgress}%`, 'success');
+  renderMain();
+  updateNotifications();
+}
+
 
 /* ------- Enhanced Admin Panel ------- */
 function AdminPanel(){
@@ -979,40 +1009,36 @@ function AdminPanel(){
 }
 
 /* ------- Main area ------- */
-function renderMain() {
-  cardsMount.innerHTML = '';
+function renderMenu() {
+  const groups = {
+    Admin: [
+      ["Tasks", "/tasks"],
+      ["Projects", "/projects"],
+      ["Notifications", "/notifications"],
+      ["Report Analysis", "/reports/analysis"],
+      ["Profile", "/profile"]
+    ],
+    Manager: [
+      ["Tasks", "/tasks"],
+      ["Projects", "/projects"],
+      ["Notifications", "/notifications"],
+      ["Report Analysis", "/reports/analysis"],
+      ["Profile", "/profile"]
+    ],
+    Member: [
+      ["Tasks", "/tasks"],
+      ["Projects", "/projects"],
+      ["Notifications", "/notifications"],
+      ["Profile", "/profile"]
+    ]
+  };
 
-  if (sample.tasksMine.length === 0 && sample.projects.length === 0) {
-    cardsMount.innerHTML = `
-      <div class="empty-state">
-        <i>✅</i>
-        <h3>Welcome to TaskGrid!</h3>
-        <p>You don't have any tasks yet. Create your first task with a deadline to get started.</p>
-        <button class="btn" onclick="showCreateTaskForm()" style="margin-top: 16px;">Create Your First Task</button>
-      </div>
-    `;
-    return;
-  }
-
-  if (role === 'Admin') {
-    sectionTitle.textContent = "Workspace Projects";
-    sample.projects.forEach(p => cardsMount.appendChild(ProjectCard(p)));
-    cardsMount.appendChild(AdminPanel());
-  } 
-  else if (role === 'Manager') {
-    sectionTitle.textContent = "Projects & Team Tasks";
-    sample.projects.forEach(p => cardsMount.appendChild(ProjectCard(p)));
-    sample.tasksMine.forEach(t => cardsMount.appendChild(TaskCard(t)));
-    cardsMount.appendChild(AdminPanel()); // ✅ one admin panel only for Manager
-  } 
-  else {
-    sectionTitle.textContent = "Your Tasks";
-    sample.tasksMine.forEach(t => cardsMount.appendChild(TaskCard(t)));
-    // ✅ Members don’t get admin panel
-  }
-
-  updateNotifications();
+  const list = groups[role] || groups.Member;
+  menuMount.innerHTML = `<h3>Menu</h3>` + list.map(([label]) =>
+    `<div class="item${label === 'Projects' ? ' active' : ''}" onclick="navigateToSection('${label}')">${label}</div>`
+  ).join('');
 }
+
 
 /* ------- Right rail ------- */
 function renderRightRail(){

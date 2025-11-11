@@ -115,6 +115,7 @@ users_col = _db["users"]
 projects_col = _db["projects"]
 tasks_col = _db["tasks"]
 worklogs_col = _db["work_logs"]
+notifications_col = _db["notifications"]
 
 
 # 🧩 ADD THIS FUNCTION BELOW — it’s what your app_mongo.py expects

@@ -230,9 +230,10 @@
       <h1>TaskGrid</h1>
     </div>
     <nav>
-      <a href="#">Home</a>
-      <a href="#">About</a>
-      <a href="#">Contact</a>
+      <a href="/dashboard">Dashboard</a>
+      <a href="/reports/analysis">Report Analysis</a>
+      <a href="/notifications">Notifications</a>
+
     </nav>
   </header>
 
@@ -296,6 +297,34 @@
         toast.remove();
       }, 5000);
     }
+    // === Load notifications dynamically from backend ===
+document.addEventListener("DOMContentLoaded", async () => {
+  try {
+    const token = localStorage.getItem("taskgrid_token");
+    const res = await fetch(`${window.location.origin}/data/notifications`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    const data = await res.json();
+    const container = document.querySelector("main");
+    
+    if (data.notifications && data.notifications.length > 0) {
+      container.innerHTML += data.notifications.map(n => `
+        <div class="notification">
+          <div>
+            <p>${n.message}</p>
+            <small>${new Date(n.timestamp).toLocaleString()}</small>
+          </div>
+          <button onclick="showToast('Marked read')">Mark Read</button>
+        </div>
+      `).join('');
+    } else {
+      container.innerHTML += `<p style="color:#9ca3af;margin-top:2rem;">No new notifications.</p>`;
+    }
+  } catch (err) {
+    console.error("Failed to load notifications", err);
+  }
+});
+
   </script>
 </body>
 </html>
