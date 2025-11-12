@@ -44,16 +44,35 @@ def create_app():
     # -------------------------------
     # Email Configuration (using environment variables)
     # -------------------------------
+        # EMAIL config (Gmail with App Password)
     app.config.update(
         MAIL_SERVER='smtp.gmail.com',
         MAIL_PORT=587,
         MAIL_USE_TLS=True,
-        MAIL_USERNAME=os.getenv('MAIL_USERNAME'),       # e.g. taskgridd@gmail.com
-        MAIL_PASSWORD=os.getenv('MAIL_PASSWORD'),       # your Google App Password
+        MAIL_USE_SSL=False,
+        MAIL_DEBUG=False,
+        MAIL_USERNAME=os.getenv('MAIL_USERNAME'),
+        MAIL_PASSWORD=os.getenv('MAIL_PASSWORD'),
         MAIL_DEFAULT_SENDER=('TaskGrid', os.getenv('MAIL_USERNAME'))
     )
-
     mail.init_app(app)
+
+    # Test email (public, debug only) - use: /test-email?to=you@example.com
+    @app.route('/test-email')
+    def test_email():
+        to = request.args.get('to')
+        if not to:
+            return jsonify({"error": "Provide ?to=you@example.com"}), 400
+        try:
+            msg = Message("TaskGrid test email", recipients=[to],
+                          body="This is a TaskGrid test email. If you received this, SMTP works.")
+            mail.send(msg)
+            app.logger.info(f"Test email sent to {to}")
+            return jsonify({"ok": True, "message": f"Sent to {to}"}), 200
+        except Exception as e:
+            app.logger.error(f"Test email failed: {e}")
+            return jsonify({"ok": False, "error": str(e)}), 500
+
 
     # -------------------------------
     # Automated Deadline Email Check (every 1 hour)

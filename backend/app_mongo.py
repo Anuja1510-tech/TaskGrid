@@ -1,20 +1,22 @@
 # TaskGrid Flask Application (MongoDB version)
-from flask import Flask, jsonify, request, render_template
+from flask import Flask, jsonify, render_template, redirect, url_for, request
 from flask_cors import CORS
-from flask_jwt_extended import JWTManager
+from flask_jwt_extended import (
+    JWTManager, verify_jwt_in_request, get_jwt_identity
+)
 from flask_mail import Mail, Message
 from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime, timedelta
 import os
 
-# Import your routes and utility
-from routes.mongo_auth import mongo_auth_bp
-from routes.mongo_tasks import mongo_tasks_bp
-from routes.mongo_data import mongo_data_bp
-from utils.mongo_db import init_mongo
+# Custom imports
 from utils.deadline_notifier import send_deadline_alerts
+from routes.auth import auth_bp
+from routes.data import data_bp
+from routes.mongo_tasks import mongo_tasks_bp
+from utils.mongo_db import init_mongo
 
-# Initialize extensions
+# Flask extensions
 mail = Mail()
 scheduler = BackgroundScheduler(daemon=True)
 
@@ -26,91 +28,42 @@ def create_app():
         template_folder="templates"
     )
 
-    # ✅ Allow requests from same origin (your frontend)
-    CORS(app, supports_credentials=True)
+    # Enable CORS
+    CORS(app, resources={r"/*": {"origins": "*"}})
 
+    # JWT Config
     app.config['SECRET_KEY'] = 'your-secret-key-change-in-production'
-    app.config['JWT_SECRET_KEY'] = 'jwt-secret-string-change-in-production'
-
+    app.config['JWT_SECRET_KEY'] = 'jwt-secret-key-change-in-production'
     jwt = JWTManager(app)
 
-    # ✅ MongoDB
+    # Initialize MongoDB
     db = init_mongo()
     if db is None:
         raise RuntimeError("❌ MongoDB initialization failed.")
-    else:
-        print("✅ MongoDB initialized successfully.")
+    print(f"✅ MongoDB connected: {db.name}")
 
-    # ✅ Email configuration (Gmail)
+    # -------------------------------
+    # ✅ Email Configuration (Gmail with App Password)
+    # -------------------------------
     app.config.update(
         MAIL_SERVER='smtp.gmail.com',
         MAIL_PORT=587,
         MAIL_USE_TLS=True,
-        MAIL_USERNAME=os.getenv('MAIL_USERNAME'),       # taskgridd@gmail.com
-        MAIL_PASSWORD=os.getenv('MAIL_PASSWORD'),       # cribxkuwbbebtuha
+        MAIL_USE_SSL=False,
+        MAIL_DEBUG=False,
+        MAIL_USERNAME=os.getenv('MAIL_USERNAME'),   # taskgridd@gmail.com
+        MAIL_PASSWORD=os.getenv('MAIL_PASSWORD'),   # cribxkuwbbebtuha
         MAIL_DEFAULT_SENDER=('TaskGrid', os.getenv('MAIL_USERNAME'))
     )
     mail.init_app(app)
 
-    # ✅ Schedule job for task deadline reminders (every 1 hour)
-    def run_deadline_notifier():
-        try:
-            send_deadline_alerts(app, db, mail)
-        except Exception as e:
-            print(f"⚠️ Error running deadline notifier: {e}")
-
-    scheduler.add_job(run_deadline_notifier, 'interval', hours=1)
-    scheduler.start()
-    print("⏰ Deadline notifier scheduler started.")
-
-    # ✅ Register blueprints
-    app.register_blueprint(mongo_auth_bp, url_prefix="/auth")
-    app.register_blueprint(mongo_data_bp, url_prefix="/data")
-    app.register_blueprint(mongo_tasks_bp, url_prefix="/data")
-
-    # ---------- FRONTEND ROUTES ----------
-    @app.route('/')
-    def serve_landing():
-        return render_template('landing_page/2-working.html')
-
-    @app.route('/login')
-    def serve_login():
-        return render_template('signup/login.html')
-
-    @app.route('/signup')
-    def serve_signup():
-        return render_template('signup/signup.html')
-
-    @app.route('/dashboard')
-    def serve_dashboard():
-        return render_template('dashboard/dashboard-functional.html')
-
-    @app.route('/reports')
-    def serve_reports():
-        return render_template('reports/analysis.html')
-
-    @app.route('/notifications')
-    def serve_notifications():
-        return render_template('notification.html')
-
-    # ✅ Notifications API
-    @app.route('/data/notifications', methods=['GET'])
-    def get_notifications():
-        """Fetch stored notifications from MongoDB"""
-        notifs = list(db.notifications.find().sort("timestamp", -1))
-        for n in notifs:
-            n["_id"] = str(n["_id"])
-            n["user_id"] = str(n.get("user_id", ""))
-            n["task_id"] = str(n.get("task_id", ""))
-        return jsonify({"notifications": notifs}), 200
-
-    # ✅ Test Email Route
+    # ✅ Test email route
     @app.route('/test-email')
     def test_email():
         """Send a test email to verify Flask-Mail setup"""
-        to = request.args.get("to")
+        to = request.args.get('to')
         if not to:
-            return jsonify({"error": "Please provide ?to=email@example.com"}), 400
+            return jsonify({"error": "Provide ?to=you@example.com"}), 400
         try:
             msg = Message(
                 subject="✅ TaskGrid Email Test Successful",
@@ -124,21 +77,107 @@ def create_app():
             print(f"❌ Failed to send email: {e}")
             return jsonify({"error": f"Failed to send email: {str(e)}"}), 500
 
+    # ✅ Manual trigger route for testing deadline emails
+    @app.route('/run-notifier-debug')
+    def run_notifier_debug():
+        try:
+            send_deadline_alerts(app, db, mail)
+            return jsonify({"message": "Deadline notifier executed manually ✅"}), 200
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    # -------------------------------
+    # Automated Deadline Email Check (every 1 hour)
+    # -------------------------------
+    def run_email_job():
+        try:
+            send_deadline_alerts(app, db, mail)
+        except Exception as e:
+            print(f"⚠️ Error running email alert job: {e}")
+
+    scheduler.add_job(run_email_job, trigger='interval', hours=1)
+    scheduler.start()
+    print("⏰ Deadline notifier scheduler started.")
+
+    # -------------------------------
+    # Register Blueprints
+    # -------------------------------
+    app.register_blueprint(auth_bp, url_prefix="/auth")
+    app.register_blueprint(data_bp, url_prefix="/data")
+    app.register_blueprint(mongo_tasks_bp, url_prefix="/data")
+
+    # -------------------------------
+    # FRONTEND ROUTES
+    # -------------------------------
+    @app.route('/')
+    def serve_landing():
+        return render_template('landing_page/2-working.html')
+
+    @app.route('/login')
+    def serve_login():
+        return redirect(url_for('serve_landing'))
+
+    @app.route('/signup')
+    def serve_signup():
+        return render_template('signup/signup.html')
+
+    @app.route('/dashboard')
+    def serve_dashboard():
+        try:
+            verify_jwt_in_request()
+            uid = get_jwt_identity()
+        except Exception:
+            uid = None
+        if not uid:
+            return redirect(url_for('serve_landing'))
+        return render_template('dashboard/dashboard-functional.html')
+
+    @app.route('/dashboard/<path:subpath>')
+    def serve_dashboard_subpath(subpath):
+        return render_template('dashboard/dashboard-functional.html')
+
+    @app.route('/dashboard/dashboard-functional.html')
+    def dashboard_redirect_fix():
+        return redirect(url_for('serve_dashboard'))
+
+    # ✅ Reports Page
+    @app.route('/reports/analysis')
+    def serve_reports():
+        return render_template('reports/analysis.html')
+
+    # ✅ Notifications Page
+    @app.route('/notifications')
+    def serve_notifications():
+        return render_template('notification.html')
+
+    # ✅ API endpoint to fetch stored notifications
+    @app.route('/data/notifications', methods=['GET'])
+    def get_notifications():
+        """Return stored notifications from MongoDB"""
+        notifs = list(db.notifications.find().sort("timestamp", -1))
+        for n in notifs:
+            n["_id"] = str(n["_id"])
+            n["user_id"] = str(n.get("user_id", ""))
+            n["task_id"] = str(n.get("task_id", ""))
+            if isinstance(n.get("timestamp"), datetime):
+                n["timestamp"] = n["timestamp"].isoformat()
+        return jsonify({"notifications": notifs}), 200
+
     # ✅ 404 handler
     @app.errorhandler(404)
     def not_found(e):
         return render_template('404.html'), 404
 
-    # ✅ Health Check
+    # ✅ Health check
     @app.route('/health')
-    def health():
-        return jsonify({'status': 'healthy', 'message': 'TaskGrid API with MongoDB is running'}), 200
+    def health_check():
+        return jsonify({'status': 'healthy', 'message': 'TaskGrid API is running'}), 200
 
     return app
 
 
 # ---------- RUN ----------
-if __name__ == '__main__':
+if __name__ == "__main__":
     app = create_app()
-    print('🚀 Starting TaskGrid with MongoDB + Notifications...')
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    print("🚀 Starting TaskGrid with MongoDB + Notifications...")
+    app.run(debug=True, host="0.0.0.0", port=5000)
