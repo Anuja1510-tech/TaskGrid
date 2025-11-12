@@ -158,28 +158,7 @@ def create_app():
     def missing_token_callback(error):
         return jsonify({'error': 'Authorization token is required'}), 401
         # ✅ TEST EMAIL ROUTE (for debugging only)
-    @app.route('/test-email')
-    def test_email():
-        """Send a test email to verify Flask-Mail setup"""
-        from flask_mail import Message
-        to = request.args.get("to")
-        if not to:
-            return jsonify({"error": "Please provide ?to=email@example.com"}), 400
-
-        try:
-            msg = Message(
-                subject="✅ TaskGrid Email Test Successful",
-                recipients=[to],
-                body="Hello from TaskGrid! 🎉\n\nYour email configuration is working correctly."
-            )
-            mail.send(msg)
-            print(f"✅ Test email sent to {to}")
-            return jsonify({"message": f"Test email sent successfully to {to}!"}), 200
-        except Exception as e:
-            print(f"❌ Failed to send email: {str(e)}")
-            return jsonify({"error": f"Failed to send email: {str(e)}"}), 500
-
-
+    
 
 
     return app

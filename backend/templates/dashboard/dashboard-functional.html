@@ -1046,7 +1046,8 @@ function AdminPanel() {
   return el;
 }
 
-function editTaskProgress(taskId, currentProgress) {
+// ✅ Replace your current editTaskProgress() function with this one
+async function editTaskProgress(taskId, currentProgress) {
   const newVal = prompt(`Enter new progress (0–100):`, currentProgress);
   if (newVal === null) return; // Cancelled
   const newProgress = parseInt(newVal);
@@ -1055,9 +1056,13 @@ function editTaskProgress(taskId, currentProgress) {
     return;
   }
 
-  const task = sample.tasksMine.find(t => t.id === taskId);
-  if (!task) return;
+  const task = sample.tasksMine.find(t => String(t.id) === String(taskId) || String(t._id) === String(taskId));
+  if (!task) {
+    showToast('Task not found locally.', 'error');
+    return;
+  }
 
+  // --- Update locally first ---
   task.progress = newProgress;
   if (newProgress >= 100) {
     task.status = 'completed';
@@ -1071,10 +1076,32 @@ function editTaskProgress(taskId, currentProgress) {
   }
 
   saveUserData(sample);
-  showToast(`Progress updated to ${newProgress}%`, 'success');
   renderMain();
   updateNotifications();
+
+  // --- Try to sync with backend ---
+  try {
+    const taskIdForAPI = task._id || task.id;
+    const updateRes = await apiCall(`/data/tasks/${taskIdForAPI}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        progress: newProgress,
+        status: task.status
+      })
+    });
+
+    if (updateRes && !updateRes.error) {
+      showToast(`Progress updated to ${newProgress}%`, 'success');
+    } else {
+      console.warn('Backend update failed:', updateRes);
+      showToast('Updated locally (server sync failed)', 'warn');
+    }
+  } catch (err) {
+    console.error('Progress update error:', err);
+    showToast('Updated locally (offline mode)', 'warn');
+  }
 }
+
 
 
 /* ------- Enhanced Admin Panel ------- */

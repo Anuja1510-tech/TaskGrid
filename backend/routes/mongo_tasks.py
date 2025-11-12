@@ -109,6 +109,34 @@ def get_tasks():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+# ---------- UPDATE TASK ----------
+@mongo_tasks_bp.route('/tasks/<task_id>', methods=['PATCH'])
+@jwt_required()
+def update_task(task_id):
+    try:
+        uid = get_jwt_identity()
+        user_oid = oid(uid)
+        data = request.get_json() or {}
+
+        update_fields = {}
+        for key in ['title', 'description', 'status', 'progress', 'priority', 'due_date', 'start_date']:
+            if key in data:
+                update_fields[key] = data[key]
+
+        if not update_fields:
+            return jsonify({'error': 'No valid fields to update'}), 400
+
+        update_fields['updated_at'] = datetime.utcnow()
+        res = tasks_col.update_one({'_id': oid(task_id), 'user_id': user_oid}, {'$set': update_fields})
+
+        if res.modified_count == 0:
+            return jsonify({'error': 'Task not found or no changes made'}), 404
+
+        updated = tasks_col.find_one({'_id': oid(task_id)})
+        return jsonify({'message': 'Task updated', 'task': to_str_id(updated)}), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 # ---------- COMPATIBILITY ALIAS ----------
 @mongo_tasks_bp.route('/data/tasks', methods=['GET', 'POST'])
@@ -118,4 +146,5 @@ def alias_tasks_data():
     if request.method == 'GET':
         return get_tasks()
     return create_task()
+
 
