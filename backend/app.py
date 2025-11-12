@@ -4,15 +4,15 @@ from flask_cors import CORS
 from flask_jwt_extended import (
     JWTManager, verify_jwt_in_request, get_jwt_identity
 )
-from flask_mail import Mail
+from flask_mail import Mail, Message
 from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime, timedelta
 import os
 
 # Custom imports
 from utils.deadline_notifier import send_deadline_alerts
-from routes.auth import auth_bp
-from routes.data import data_bp
+from routes.mongo_auth import mongo_auth_bp
+from routes.mongo_data import mongo_data_bp
 from routes.mongo_tasks import mongo_tasks_bp
 from utils.mongo_db import init_mongo
 
@@ -44,7 +44,6 @@ def create_app():
     # -------------------------------
     # Email Configuration (using environment variables)
     # -------------------------------
-        # EMAIL config (Gmail with App Password)
     app.config.update(
         MAIL_SERVER='smtp.gmail.com',
         MAIL_PORT=587,
@@ -57,7 +56,7 @@ def create_app():
     )
     mail.init_app(app)
 
-    # Test email (public, debug only) - use: /test-email?to=you@example.com
+    # ✅ Test Email Route
     @app.route('/test-email')
     def test_email():
         to = request.args.get('to')
@@ -67,12 +66,11 @@ def create_app():
             msg = Message("TaskGrid test email", recipients=[to],
                           body="This is a TaskGrid test email. If you received this, SMTP works.")
             mail.send(msg)
-            app.logger.info(f"Test email sent to {to}")
+            app.logger.info(f"✅ Test email sent to {to}")
             return jsonify({"ok": True, "message": f"Sent to {to}"}), 200
         except Exception as e:
-            app.logger.error(f"Test email failed: {e}")
+            app.logger.error(f"❌ Test email failed: {e}")
             return jsonify({"ok": False, "error": str(e)}), 500
-
 
     # -------------------------------
     # Automated Deadline Email Check (every 1 hour)
@@ -90,10 +88,10 @@ def create_app():
     print("⏰ Deadline notifier scheduler started.")
 
     # -------------------------------
-    # Register Blueprints
+    # Register Blueprints (MongoDB versions)
     # -------------------------------
-    app.register_blueprint(auth_bp, url_prefix="/auth")
-    app.register_blueprint(data_bp, url_prefix="/data")
+    app.register_blueprint(mongo_auth_bp, url_prefix="/auth")
+    app.register_blueprint(mongo_data_bp, url_prefix="/data")
     app.register_blueprint(mongo_tasks_bp, url_prefix="/data")
 
     # -------------------------------
@@ -176,9 +174,6 @@ def create_app():
     @jwt.unauthorized_loader
     def missing_token_callback(error):
         return jsonify({'error': 'Authorization token is required'}), 401
-        # ✅ TEST EMAIL ROUTE (for debugging only)
-    
-
 
     return app
 
