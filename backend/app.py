@@ -4,15 +4,15 @@ from flask_cors import CORS
 from flask_jwt_extended import (
     JWTManager, verify_jwt_in_request, get_jwt_identity
 )
-from flask_mail import Mail, Message
+from flask_mail import Mail
 from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime, timedelta
 import os
 
 # Custom imports
 from utils.deadline_notifier import send_deadline_alerts
-from routes.mongo_auth import mongo_auth_bp
-from routes.mongo_data import mongo_data_bp
+from routes.auth import auth_bp
+from routes.data import data_bp
 from routes.mongo_tasks import mongo_tasks_bp
 from utils.mongo_db import init_mongo
 
@@ -48,29 +48,12 @@ def create_app():
         MAIL_SERVER='smtp.gmail.com',
         MAIL_PORT=587,
         MAIL_USE_TLS=True,
-        MAIL_USE_SSL=False,
-        MAIL_DEBUG=False,
-        MAIL_USERNAME=os.getenv('MAIL_USERNAME'),
-        MAIL_PASSWORD=os.getenv('MAIL_PASSWORD'),
+        MAIL_USERNAME=os.getenv('MAIL_USERNAME'),       # e.g. taskgridd@gmail.com
+        MAIL_PASSWORD=os.getenv('MAIL_PASSWORD'),       # your Google App Password
         MAIL_DEFAULT_SENDER=('TaskGrid', os.getenv('MAIL_USERNAME'))
     )
-    mail.init_app(app)
 
-    # ✅ Test Email Route
-    @app.route('/test-email')
-    def test_email():
-        to = request.args.get('to')
-        if not to:
-            return jsonify({"error": "Provide ?to=you@example.com"}), 400
-        try:
-            msg = Message("TaskGrid test email", recipients=[to],
-                          body="This is a TaskGrid test email. If you received this, SMTP works.")
-            mail.send(msg)
-            app.logger.info(f"✅ Test email sent to {to}")
-            return jsonify({"ok": True, "message": f"Sent to {to}"}), 200
-        except Exception as e:
-            app.logger.error(f"❌ Test email failed: {e}")
-            return jsonify({"ok": False, "error": str(e)}), 500
+    mail.init_app(app)
 
     # -------------------------------
     # Automated Deadline Email Check (every 1 hour)
@@ -88,10 +71,10 @@ def create_app():
     print("⏰ Deadline notifier scheduler started.")
 
     # -------------------------------
-    # Register Blueprints (MongoDB versions)
+    # Register Blueprints
     # -------------------------------
-    app.register_blueprint(mongo_auth_bp, url_prefix="/auth")
-    app.register_blueprint(mongo_data_bp, url_prefix="/data")
+    app.register_blueprint(auth_bp, url_prefix="/auth")
+    app.register_blueprint(data_bp, url_prefix="/data")
     app.register_blueprint(mongo_tasks_bp, url_prefix="/data")
 
     # -------------------------------
@@ -174,6 +157,30 @@ def create_app():
     @jwt.unauthorized_loader
     def missing_token_callback(error):
         return jsonify({'error': 'Authorization token is required'}), 401
+        # ✅ TEST EMAIL ROUTE (for debugging only)
+    @app.route('/test-email')
+    def test_email():
+        """Send a test email to verify Flask-Mail setup"""
+        from flask_mail import Message
+        to = request.args.get("to")
+        if not to:
+            return jsonify({"error": "Please provide ?to=email@example.com"}), 400
+
+        try:
+            msg = Message(
+                subject="✅ TaskGrid Email Test Successful",
+                recipients=[to],
+                body="Hello from TaskGrid! 🎉\n\nYour email configuration is working correctly."
+            )
+            mail.send(msg)
+            print(f"✅ Test email sent to {to}")
+            return jsonify({"message": f"Test email sent successfully to {to}!"}), 200
+        except Exception as e:
+            print(f"❌ Failed to send email: {str(e)}")
+            return jsonify({"error": f"Failed to send email: {str(e)}"}), 500
+
+
+
 
     return app
 
