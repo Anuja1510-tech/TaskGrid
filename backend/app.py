@@ -135,26 +135,6 @@ def create_app():
             n["task_id"] = str(n.get("task_id", ""))
         return jsonify({"notifications": notifs}), 200
 
-    # ✅ Test Email Route (for debugging)
-    @app.route('/test-email')
-    def test_email():
-        """Send a test email to verify Flask-Mail setup"""
-        from flask_mail import Message
-        to = request.args.get("to")
-        if not to:
-            return jsonify({"error": "Please provide ?to=email@example.com"}), 400
-
-        try:
-            msg = Message(
-                subject="✅ TaskGrid Email Test Successful",
-                recipients=[to],
-                body="Hello from TaskGrid! 🎉\n\nYour email configuration is working correctly."
-            )
-            mail.send(msg)
-            return jsonify({"message": f"Test email sent successfully to {to}!"}), 200
-        except Exception as e:
-            return jsonify({"error": f"Failed to send email: {str(e)}"}), 500
-
     # ✅ 404 handler
     @app.errorhandler(404)
     def not_found(e):
@@ -177,6 +157,30 @@ def create_app():
     @jwt.unauthorized_loader
     def missing_token_callback(error):
         return jsonify({'error': 'Authorization token is required'}), 401
+        # ✅ TEST EMAIL ROUTE (for debugging only)
+    @app.route('/test-email')
+    def test_email():
+        """Send a test email to verify Flask-Mail setup"""
+        from flask_mail import Message
+        to = request.args.get("to")
+        if not to:
+            return jsonify({"error": "Please provide ?to=email@example.com"}), 400
+
+        try:
+            msg = Message(
+                subject="✅ TaskGrid Email Test Successful",
+                recipients=[to],
+                body="Hello from TaskGrid! 🎉\n\nYour email configuration is working correctly."
+            )
+            mail.send(msg)
+            print(f"✅ Test email sent to {to}")
+            return jsonify({"message": f"Test email sent successfully to {to}!"}), 200
+        except Exception as e:
+            print(f"❌ Failed to send email: {str(e)}")
+            return jsonify({"error": f"Failed to send email: {str(e)}"}), 500
+
+
+
 
     return app
 
