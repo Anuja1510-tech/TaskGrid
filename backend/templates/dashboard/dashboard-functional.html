@@ -1002,10 +1002,9 @@ function TaskCard(t){
   }
   
   // Calculate progress (backend tasks might not have progress field)
-  const progress = typeof t.progress === 'number' ? t.progress : Number(t.progress || 0);
+  const progress = t.progress || 0;
   const projectName = t.project_name || t.project || 'Unknown Project';
   const assigneeName = t.assignee_name || t.assignee || 'Unassigned';
-  const idForClick = JSON.stringify(t._id || t.id);
   
   el.innerHTML = `
     <h3>${t.title}</h3>
@@ -1017,9 +1016,9 @@ function TaskCard(t){
     <div class="progress"><i style="width:${progress}%"></i></div>
     <div class="assignees">
       <span class="pill">${assigneeName}</span>
-      <span class="pill editable-progress" onclick="editTaskProgress(${idForClick}, ${progress})">Progress ${progress}%</span>
-      <span class="pill" onclick="editTaskProgress(${idForClick}, ${progress})">📈 Update</span>
-      <span class="pill" onclick="assignTask(${idForClick})">👥 Assign</span>
+      <span class="pill editable-progress" onclick="editTaskProgress(${t.id}, ${progress})">Progress ${progress}%</span>
+      <span class="pill" onclick="updateTaskProgress(${t.id})">📈 Update</span>
+      <span class="pill" onclick="assignTask(${t.id})">👥 Assign</span>
     </div>
   `;
   el.style.gridColumn = 'span 6';
@@ -1212,10 +1211,10 @@ function showTimeline() {
   showToast(`📅 Upcoming Timeline:\n${timelineText}`, 'info');
 }
 
-// Task progress update (compat wrapper — delegates to editTaskProgress)
+// Task progress update: delegate to editTaskProgress so UI and backend stay in sync
 function updateTaskProgress(taskId) {
   const task = sample.tasksMine.find(t => String(t.id) === String(taskId) || String(t._id) === String(taskId));
-  const current = task && typeof task.progress === 'number' ? task.progress : Number(task?.progress || 0);
+  const current = task ? (task.progress || 0) : 0;
   return editTaskProgress(taskId, current);
 }
 
