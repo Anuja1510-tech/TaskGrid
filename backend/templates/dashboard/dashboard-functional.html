@@ -1005,6 +1005,7 @@ function TaskCard(t){
   const progress = t.progress || 0;
   const projectName = t.project_name || t.project || 'Unknown Project';
   const assigneeName = t.assignee_name || t.assignee || 'Unassigned';
+  const safeId = JSON.stringify(t._id || t.id); // ensure string IDs are quoted in HTML
   
   el.innerHTML = `
     <h3>${t.title}</h3>
@@ -1016,9 +1017,9 @@ function TaskCard(t){
     <div class="progress"><i style="width:${progress}%"></i></div>
     <div class="assignees">
       <span class="pill">${assigneeName}</span>
-      <span class="pill editable-progress" onclick="editTaskProgress(${t.id}, ${progress})">Progress ${progress}%</span>
-      <span class="pill" onclick="updateTaskProgress(${t.id})">📈 Update</span>
-      <span class="pill" onclick="assignTask(${t.id})">👥 Assign</span>
+      <span class="pill editable-progress" onclick="editTaskProgress(${safeId}, ${progress})">Progress ${progress}%</span>
+      <span class="pill" onclick="updateTaskProgress(${safeId})">📈 Update</span>
+      <span class="pill" onclick="assignTask(${safeId})">👥 Assign</span>
     </div>
   `;
   el.style.gridColumn = 'span 6';
@@ -1211,11 +1212,13 @@ function showTimeline() {
   showToast(`📅 Upcoming Timeline:\n${timelineText}`, 'info');
 }
 
-// Task progress update: delegate to editTaskProgress so UI and backend stay in sync
+// Task progress update: robust handler wired from the "Update" button
 function updateTaskProgress(taskId) {
-  const task = sample.tasksMine.find(t => String(t.id) === String(taskId) || String(t._id) === String(taskId));
+  // taskId may already be a string (from safeId), normalize to string for comparison
+  const idStr = String(taskId);
+  const task = sample.tasksMine.find(t => String(t.id) === idStr || String(t._id) === idStr);
   const current = task ? (task.progress || 0) : 0;
-  return editTaskProgress(taskId, current);
+  return editTaskProgress(idStr, current);
 }
 
 // Task assignment
