@@ -339,6 +339,74 @@ def update_task(task_id):
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
+@data_bp.route('/tasks/<int:task_id>', methods=['PATCH'])
+@jwt_required()
+def patch_task(task_id):
+    """Partially update a task (progress, status, and selected fields).
+    This enables dashboard progress updates without affecting other behavior.
+    """
+    try:
+        user_id = get_jwt_identity()
+        user = User.query.get(user_id)
+
+        task = Task.query.get(task_id)
+        if not task:
+            return jsonify({'error': 'Task not found'}), 404
+
+        # Permissions: same as update_task
+        can_edit = (
+            user.role in ['admin', 'manager'] or
+            task.created_by == user_id or
+            task.assigned_to == user_id or
+            task.project.owner_id == user_id
+        )
+        if not can_edit:
+            return jsonify({'error': 'Access denied'}), 403
+
+        data = request.get_json() or {}
+
+        # Progress handling (0-100)
+        if 'progress' in data:
+            try:
+                progress_val = int(data['progress'])
+            except Exception:
+                return jsonify({'error': 'progress must be an integer 0-100'}), 400
+            if progress_val < 0 or progress_val > 100:
+                return jsonify({'error': 'progress must be between 0 and 100'}), 400
+            # Map progress to status if desired: 100 -> completed
+            if progress_val == 100:
+                task.status = 'completed'
+                if not task.completion_date:
+                    task.completion_date = date.today()
+            else:
+                # If currently completed but progress lowered, set to in_progress
+                if task.status == 'completed':
+                    task.status = 'in_progress'
+
+        # Optional direct status update
+        if 'status' in data:
+            task.status = data['status']
+            if data['status'] == 'completed' and not task.completion_date:
+                task.completion_date = date.today()
+
+        # Optional light updates to keep parity with PUT handler
+        if 'title' in data: task.title = data['title']
+        if 'description' in data: task.description = data['description']
+        if 'priority' in data: task.priority = data['priority']
+        if 'estimated_hours' in data: task.estimated_hours = data['estimated_hours']
+        if 'assigned_to' in data: task.assigned_to = data['assigned_to']
+        if 'start_date' in data:
+            task.start_date = datetime.strptime(data['start_date'], '%Y-%m-%d').date() if data['start_date'] else None
+        if 'due_date' in data:
+            task.due_date = datetime.strptime(data['due_date'], '%Y-%m-%d').date() if data['due_date'] else None
+
+        db.session.commit()
+        return jsonify({'message': 'Task patched successfully', 'task': task.to_dict()}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
 # ============ WORK LOG ROUTES ============
 
 @data_bp.route('/work-logs', methods=['GET'])
