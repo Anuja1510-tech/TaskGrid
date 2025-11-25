@@ -156,10 +156,22 @@ def update_task(task_id):
             return jsonify({'error': 'No valid fields to update'}), 400
 
         update_fields['updated_at'] = datetime.utcnow()
-        res = tasks_col.update_one({'_id': oid(task_id), 'user_id': user_oid}, {'$set': update_fields})
+        # Broaden authorization like delete: allow owner/creator/assignee and legacy *_str fields
+        auth_q = {
+            '_id': oid(task_id),
+            '$or': [
+                {'user_id': {'$in': [user_oid, uid]}},
+                {'created_by': {'$in': [user_oid, uid]}},
+                {'assigned_to': {'$in': [user_oid, uid]}},
+                {'user_id_str': str(uid)},
+                {'created_by_str': str(uid)},
+                {'assigned_to_str': str(uid)},
+            ]
+        }
+        res = tasks_col.update_one(auth_q, {'$set': update_fields})
 
-        if res.modified_count == 0:
-            return jsonify({'error': 'Task not found or no changes made'}), 404
+        if res.modified_count == 0 and res.matched_count == 0:
+            return jsonify({'error': 'Task not found or not permitted'}), 404
 
         updated = tasks_col.find_one({'_id': oid(task_id)})
         return jsonify({'message': 'Task updated', 'task': to_str_id(updated)}), 200
