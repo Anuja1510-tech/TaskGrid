@@ -10,6 +10,35 @@ def _task_public(doc):
     """Convert MongoDB document to JSON-safe dict"""
     return to_str_id(doc)
 
+# ---------- DELETE TASK ----------
+@mongo_tasks_bp.route('/tasks/<task_id>', methods=['DELETE'])
+@jwt_required()
+def delete_task(task_id):
+    try:
+        uid = get_jwt_identity()
+        user_oid = oid(uid)
+        if not user_oid:
+            return jsonify({'error': 'Invalid user identity'}), 401
+
+        # Allow delete if current user is owner/creator/assignee
+        q = {
+            '_id': oid(task_id),
+            '$or': [
+                {'user_id': {'$in': [user_oid, uid]}},
+                {'created_by': {'$in': [user_oid, uid]}},
+                {'assigned_to': {'$in': [user_oid, uid]}},
+                {'user_id_str': str(uid)},
+                {'created_by_str': str(uid)},
+                {'assigned_to_str': str(uid)},
+            ]
+        }
+        res = tasks_col.delete_one(q)
+        if res.deleted_count == 0:
+            return jsonify({'error': 'Task not found or not permitted'}), 404
+        return jsonify({'message': 'Task deleted'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 
 # ---------- CREATE TASK ----------
 @mongo_tasks_bp.route('/tasks', methods=['POST'])

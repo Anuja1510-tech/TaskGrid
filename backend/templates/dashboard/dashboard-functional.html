@@ -1005,6 +1005,7 @@ function TaskCard(t){
   const progress = t.progress || 0;
   const projectName = t.project_name || t.project || 'Unknown Project';
   const assigneeName = t.assignee_name || t.assignee || 'Unassigned';
+  const tid = t._id || t.id; // normalized id for actions
   
   el.innerHTML = `
     <h3>${t.title}</h3>
@@ -1016,13 +1017,38 @@ function TaskCard(t){
     <div class="progress"><i style="width:${progress}%"></i></div>
     <div class="assignees">
       <span class="pill">${assigneeName}</span>
-      <span class="pill editable-progress" onclick="editTaskProgress(${t.id}, ${progress})">Progress ${progress}%</span>
-      <span class="pill" onclick="updateTaskProgress(${t.id})">📈 Update</span>
-      <span class="pill" onclick="assignTask(${t.id})">👥 Assign</span>
+      <span class="pill editable-progress" onclick="editTaskProgress('${tid}', ${progress})">Progress ${progress}%</span>
+      <span class="pill" onclick="editTaskProgress('${tid}', ${progress})">📈 Update</span>
+      <span class="pill" onclick="assignTask('${tid}')">👥 Assign</span>
+      <span class="pill" style="background: rgba(255,93,108,.15); border:1px solid rgba(255,93,108,.35);" onclick="deleteTask('${tid}')">🗑️ Delete</span>
     </div>
   `;
   el.style.gridColumn = 'span 6';
   return el;
+}
+
+// Delete task handler
+async function deleteTask(taskId){
+  if (!taskId) { showToast('Invalid task id', 'error'); return; }
+  const confirmDel = confirm('Are you sure you want to delete this task? This action cannot be undone.');
+  if (!confirmDel) return;
+  
+  try {
+    const res = await apiCall(`/data/tasks/${taskId}`, { method: 'DELETE' });
+    if (res && !res.error) {
+      // remove locally by both possible id fields
+      sample.tasksMine = sample.tasksMine.filter(t => String(t.id) !== String(taskId) && String(t._id) !== String(taskId));
+      showToast('Task deleted', 'success');
+      renderMain();
+      fillKPIs();
+      updateNotifications();
+    } else {
+      showToast(res?.error || 'Failed to delete task', 'error');
+    }
+  } catch (e) {
+    console.error('Delete failed', e);
+    showToast('Network error while deleting task', 'error');
+  }
 }
 /* ------- Admin Panel: Quick Actions ------- */
 function AdminPanel() {
