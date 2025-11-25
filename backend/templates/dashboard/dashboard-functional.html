@@ -457,12 +457,9 @@ const tasksData = await apiCall("/data/tasks");
 const rawTasks = tasksData.tasks || [];
 
 // 🔄 Normalize server task objects to match UI expectations
-sample.tasksMine = rawTasks.map(t => {
-  const rawId = t._id || t.id;
-  const idStr = rawId != null ? String(rawId) : String(Date.now() + Math.random());
-  return {
-  id: idStr,
-  _id: idStr,
+sample.tasksMine = rawTasks.map(t => ({
+  id: t._id || t.id,
+  _id: t._id || t.id,
   title: t.title || "Untitled Task",
   description: t.description || "",
   status: (t.status || "todo").toLowerCase(),
@@ -981,7 +978,6 @@ function ProjectCard(p){
 }
 
 /* ------- Enhanced Task Card with deadline features ------- */
-{
 function TaskCard(t){
   const el = document.createElement('div');
   el.className = 'card proj';
@@ -1009,30 +1005,24 @@ function TaskCard(t){
   const progress = t.progress || 0;
   const projectName = t.project_name || t.project || 'Unknown Project';
   const assigneeName = t.assignee_name || t.assignee || 'Unassigned';
-
-  // Ensure id is always passed as a safe JS string (escape single quotes)
-  const rawId = t._id || t.id || '';
-  const safeId = String(rawId).replace(/'/g, "\\'");
-
+  
   el.innerHTML = `
-    <h3>${escapeHtml(t.title)}</h3>
+    <h3>${t.title}</h3>
     <div class="meta">
-      <span>${escapeHtml(projectName)}</span> • 
+      <span>${projectName}</span> • 
       <span style="color: ${statusColor}">${statusText}</span> • 
-      <span>Priority: ${escapeHtml(t.priority)}</span>
+      <span>Priority: ${t.priority}</span>
     </div>
     <div class="progress"><i style="width:${progress}%"></i></div>
     <div class="assignees">
-      <span class="pill">${escapeHtml(assigneeName)}</span>
-      <span class="pill editable-progress" onclick="editTaskProgress('${safeId}', ${progress})">Progress ${progress}%</span>
-      <span class="pill" onclick="updateTaskProgress('${safeId}')">📈 Update</span>
-      <span class="pill" onclick="assignTask('${safeId}')">👥 Assign</span>
-      <span class="pill" style="background: rgba(255,93,108,.2);" onclick="deleteTask('${safeId}')">🗑 Delete</span>
+      <span class="pill">${assigneeName}</span>
+      <span class="pill editable-progress" onclick="editTaskProgress(${t.id}, ${progress})">Progress ${progress}%</span>
+      <span class="pill" onclick="updateTaskProgress(${t.id})">📈 Update</span>
+      <span class="pill" onclick="assignTask(${t.id})">👥 Assign</span>
     </div>
   `;
   el.style.gridColumn = 'span 6';
   return el;
-}
 }
 /* ------- Admin Panel: Quick Actions ------- */
 function AdminPanel() {
@@ -1057,182 +1047,1287 @@ function AdminPanel() {
 }
 
 // ✅ Replace your current editTaskProgress() function with this one
-async function editTaskProgress(taskId) {
-  // Normalize id
-  const idStr = String(taskId);
-  const task = sample.tasksMine.find(t => String(t.id) === idStr || String(t._id) === idStr);
-  if (!task) {
-    showToast('Task not found.', 'error');
+async function editTaskProgress(taskId, currentProgress) {
+  const newVal = prompt(`Enter new progress (0–100):`, currentProgress);
+  if (newVal === null) return; // Cancelled
+  const newProgress = parseInt(newVal);
+  if (isNaN(newProgress) || newProgress < 0 || newProgress > 100) {
+    showToast('Invalid progress value. Enter between 0 and 100.', 'error');
     return;
   }
 
-  // Build modal (re-uses modal styles already present)
+  const task = sample.tasksMine.find(t => String(t.id) === String(taskId) || String(t._id) === String(taskId));
+  if (!task) {
+    showToast('Task not found locally.', 'error');
+    return;
+  }
+
+  // --- Update locally first ---
+  task.progress = newProgress;
+  if (newProgress >= 100) {
+    task.status = 'completed';
+    sample.notifs.unshift({
+      t: `✅ Task completed: ${task.title}`,
+      kind: 'ok',
+      time: 'Now',
+      read: false,
+      id: Date.now()
+    });
+  }
+
+  saveUserData(sample);
+  renderMain();
+  updateNotifications();
+
+  // --- Try to sync with backend ---
+  try {
+    const taskIdForAPI = task._id || task.id;
+    const updateRes = await apiCall(`/data/tasks/${taskIdForAPI}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        progress: newProgress,
+        status: task.status
+      })
+    });
+
+    if (updateRes && !updateRes.error) {
+      showToast(`Progress updated to ${newProgress}%`, 'success');
+    } else {
+      console.warn('Backend update failed:', updateRes);
+      showToast('Updated locally (server sync failed)', 'warn');
+    }
+  } catch (err) {
+    console.error('Progress update error:', err);
+    showToast('Updated locally (offline mode)', 'warn');
+  }
+}
+
+
+
+/* ------- Enhanced Admin Panel ------- */
+function AdminPanel(){
+  const el = document.createElement('div');
+  el.className = 'card';
+  el.style.gridColumn = '1 / -1';
+  el.innerHTML = `
+    <div class="section-title" style="margin-bottom:8px;">
+      <h2>Quick Actions</h2>
+      <span class="chip">Enhanced</span>
+    </div>
+    <div style="display:flex; gap:12px; flex-wrap:wrap;">
+      <button class="btn-ghost" onclick="showCreateTaskForm()">➕ Add Task</button>
+      <button class="btn-ghost" onclick="showMembers()">👥 View Members</button>
+      <button class="btn-ghost" onclick="generateReport()">📊 Generate Report</button>
+      <button class="btn-ghost" onclick="showDeadlines()">📅 View Deadlines</button>
+      <button class="btn-ghost" onclick="exportData()">💾 Export Data</button>
+      <button class="btn-ghost" onclick="showProfile()">👤 Profile</button>
+    </div>
+  `;
+  return el;
+}
+
+/* ------- Main area ------- */
+function renderMenu() {
+  const groups = {
+    Admin: [
+      ["Tasks", "/tasks"],
+      ["Projects", "/projects"],
+      ["Notifications", "/notifications"],
+      ["Report Analysis", "/reports/analysis"],
+      ["Profile", "/profile"]
+    ],
+    Manager: [
+      ["Tasks", "/tasks"],
+      ["Projects", "/projects"],
+      ["Notifications", "/notifications"],
+      ["Report Analysis", "/reports/analysis"],
+      ["Profile", "/profile"]
+    ],
+    Member: [
+      ["Tasks", "/tasks"],
+      ["Projects", "/projects"],
+      ["Notifications", "/notifications"],
+      ["Profile", "/profile"]
+    ]
+  };
+
+  const list = groups[role] || groups.Member;
+  menuMount.innerHTML = `<h3>Menu</h3>` + list.map(([label]) =>
+    `<div class="item${label === 'Projects' ? ' active' : ''}" onclick="navigateToSection('${label}')">${label}</div>`
+  ).join('');
+}
+
+
+/* ------- Right rail ------- */
+function renderRightRail(){
+  document.getElementById('updates').innerHTML =
+    sample.updates.map(u => `
+      <div class="notif"><span class="dot ${u.kind}"></span><div>${u.t}<br><small style="color: var(--muted); font-size: 10px;">${u.time}</small></div></div>
+    `).join('');
+
+  updateNotifications();
+}
+
+/* ------- KPIs ------- */
+function fillKPIs(){
+  const proj = sample.projects.length;
+  const openTasks = sample.tasksMine.filter(t => t.status !== 'completed').length;
+  const onTrack = sample.projects.length > 0 ? Math.round(
+    (sample.projects.filter(p=>p.health==='ok').length / proj) * 100
+  ) : 0;
+  const unreadNotifs = sample.notifs.filter(n => !n.read).length;
+
+  document.getElementById('kpiProjects').textContent = proj;
+  document.getElementById('kpiTasks').textContent = openTasks;
+  document.getElementById('kpiOnTrack').textContent = onTrack + '%';
+  document.getElementById('kpiNotifs').textContent = unreadNotifs;
+}
+
+/* ------- Enhanced Functions ------- */
+
+// Timeline functionality
+function showProjectTimeline(projectId) {
+  const project = sample.projects.find(p => p.id === projectId);
+  if (!project) return;
+  
+  showToast(`📅 Timeline for ${project.name}:\nStart: ${formatDate(project.startDate)}\nDeadline: ${formatDate(project.deadline)}\nProgress: ${project.progress}%`, 'info');
+}
+
+function showTimeline() {
+  if (sample.tasksMine.length === 0) {
+    showToast('No tasks to show in timeline. Create a task first!', 'info');
+    return;
+  }
+  
+  const upcomingTasks = sample.tasksMine
+    .filter(t => t.due)
+    .sort((a, b) => new Date(a.due) - new Date(b.due))
+    .slice(0, 5);
+  
+  const timelineText = upcomingTasks
+    .map(t => `${t.title}: ${formatDate(t.due)} (${t.status})`)
+    .join('\n');
+  
+  showToast(`📅 Upcoming Timeline:\n${timelineText}`, 'info');
+}
+
+// Task progress update
+function updateTaskProgress(taskId) {
+  const task = sample.tasksMine.find(t => t.id === taskId);
+  if (!task) return;
+  
+  const newProgress = prompt(`Update progress for "${task.title}" (current: ${task.progress}%):`, task.progress);
+  if (newProgress !== null && !isNaN(newProgress) && newProgress >= 0 && newProgress <= 100) {
+    task.progress = parseInt(newProgress);
+    if (newProgress == 100) {
+      task.status = 'completed';
+      // Add completion notification
+      sample.notifs.unshift({
+        t: `✅ Task completed: ${task.title}`,
+        kind: 'ok',
+        time: 'Now',
+        read: false,
+        id: Date.now()
+      });
+    }
+    saveUserData(sample);
+    showToast(`Progress updated to ${newProgress}%`, 'success');
+    renderMain();
+    updateNotifications();
+  }
+}
+
+// Task assignment
+function assignTask(taskId) {
+  const task = sample.tasksMine.find(t => t.id === taskId);
+  if (!task) return;
+  
+  const membersList = sample.members.map(m => `${m.name} (${m.role})`).join('\n');
+  const selectedMember = prompt(`Assign "${task.title}" to:\n\n${membersList}\n\nEnter member name:`);
+  
+  if (selectedMember) {
+    const member = sample.members.find(m => m.name.toLowerCase().includes(selectedMember.toLowerCase()));
+    if (member) {
+      task.assignee = member.name;
+      saveUserData(sample);
+      showToast(`Task assigned to ${member.name}`, 'success');
+      renderMain();
+    } else {
+      showToast('Member not found', 'error');
+    }
+  }
+}
+
+// Enhanced Add Task functionality with REQUIRED dates and backend integration
+async function addNewTask() {
+  const title = prompt('Task title (required):');
+  if (!title || title.trim() === '') {
+    showToast('Task title is required!', 'error');
+    return;
+  }
+  
+  const description = prompt('Task description (optional):') || '';
+  
+  // Get or create project
+  let projectId = null;
+  if (sample.projects.length > 0) {
+    const projectsList = sample.projects.map((p, index) => `${index + 1}. ${p.name}`).join('\n');
+    const projectChoice = prompt(`Select existing project or create new:\n\n${projectsList}\n\nEnter project number (1-${sample.projects.length}) or type new project name:`);
+    
+    if (projectChoice && !isNaN(projectChoice) && projectChoice >= 1 && projectChoice <= sample.projects.length) {
+      projectId = sample.projects[parseInt(projectChoice) - 1].id;
+    } else if (projectChoice && projectChoice.trim()) {
+      // Create new project
+      try {
+        const newProject = await apiCall('/data/projects', 'POST', {
+          name: projectChoice.trim(),
+          description: `Project for ${title}`,
+          status: 'active',
+          priority: 'medium'
+        });
+        projectId = newProject.project.id;
+        showToast('New project created!', 'success');
+        // Refresh projects list
+        const projectsData = await apiCall('/data/projects');
+        sample.projects = projectsData.projects || [];
+      } catch (error) {
+        showToast('Failed to create project. Using offline mode.', 'warn');
+        // Fallback to local project creation
+        const localProject = {
+          id: Date.now(),
+          name: projectChoice.trim(),
+          description: `Project for ${title}`,
+          status: 'active',
+          priority: 'medium',
+          progress: 0,
+          owner: 'You',
+          openTasks: 1,
+          health: 'ok',
+          deadline: null
+        };
+        sample.projects.push(localProject);
+        projectId = localProject.id;
+      }
+    } else {
+      showToast('Project selection is required!', 'error');
+      return;
+    }
+  } else {
+    // No existing projects, create new one
+    const projectName = prompt('Project name (required):');
+    if (!projectName || projectName.trim() === '') {
+      showToast('Project name is required!', 'error');
+      return;
+    }
+    
+    try {
+      const newProject = await apiCall('/data/projects', 'POST', {
+        name: projectName.trim(),
+        description: `Project for ${title}`,
+        status: 'active',
+        priority: 'medium'
+      });
+      projectId = newProject.project.id;
+      showToast('New project created!', 'success');
+      // Refresh projects list
+      const projectsData = await apiCall('/data/projects');
+      sample.projects = projectsData.projects || [];
+    } catch (error) {
+      showToast('Failed to create project. Using offline mode.', 'warn');
+      // Fallback to local project creation
+      const localProject = {
+        id: Date.now(),
+        name: projectName.trim(),
+        description: `Project for ${title}`,
+        status: 'active',
+        priority: 'medium',
+        progress: 0,
+        owner: 'You',
+        openTasks: 1,
+        health: 'ok',
+        deadline: null
+      };
+      sample.projects.push(localProject);
+      projectId = localProject.id;
+    }
+  }
+  
+  // Start date is required
+  const startDate = prompt('Start date (YYYY-MM-DD, required):', new Date().toISOString().split('T')[0]);
+  if (!startDate || !isValidDate(startDate)) {
+    showToast('Valid start date is required!', 'error');
+    return;
+  }
+  
+  // Due date is required
+  const dueDate = prompt('Due date (YYYY-MM-DD, required):');
+  if (!dueDate || !isValidDate(dueDate)) {
+    showToast('Valid due date is required!', 'error');
+    return;
+  }
+  
+  // Validate that due date is after start date
+  if (new Date(dueDate) <= new Date(startDate)) {
+    showToast('Due date must be after start date!', 'error');
+    return;
+  }
+  
+  const priority = prompt('Priority (low/medium/high/urgent):', 'medium');
+  const validPriorities = ['low', 'medium', 'high', 'urgent'];
+  const taskPriority = validPriorities.includes(priority?.toLowerCase()) ? priority.toLowerCase() : 'medium';
+  
+  // Estimate hours
+  const estimatedHours = prompt('Estimated hours (optional):') || '0';
+  const hours = parseFloat(estimatedHours) || 0;
+  const notifyPhone = prompt('Enter SMS number for reminders (optional, e.g., +15551234567):') || '';
+  
+  try {
+    // Create task via API
+    const newTaskData = await apiCall('/data/tasks', {
+  method: 'POST',
+  body: JSON.stringify({
+    title: title.trim(),
+    description,
+    project_id: projectId,
+    priority: taskPriority,
+    estimated_hours: hours,
+    start_date: startDate,
+    due_date: dueDate,
+    status: 'todo',
+    notify_phone: notifyPhone ? notifyPhone.trim() : undefined
+  })
+});
+
+    
+    // Add to local data
+    const newTask = {
+    id: newTaskData.task._id || newTaskData.task.id,
+    title,
+    project: sample.projects.find(p => (p._id || p.id) === project_id)?.name || 'Unknown Project',
+    project_id,
+    description,
+    progress: 0,
+    due: due_date,
+    due_date,
+    start_date,
+    priority,
+    status: 'todo',
+    estimated_hours: estimated_hours || 0,
+    assignee: 'You',
+    created: newTaskData.task.created_at
+  };
+
+    
+    sample.tasksMine.push(newTask);
+    
+    // Add notification for new task
+    sample.notifs.unshift({
+      t: `📝 New task created: ${newTask.title}`,
+      kind: 'ok',
+      time: 'Now',
+      read: false,
+      id: Date.now() + 1
+    });
+    
+    // Add deadline notification if due soon
+    const daysUntil = getDaysUntilDeadline(dueDate);
+    if (daysUntil <= 7) {
+      sample.notifs.unshift({
+        t: `⏰ Task "${newTask.title}" is due in ${daysUntil} day${daysUntil !== 1 ? 's' : ''}`,
+        kind: 'warn',
+        time: 'Now',
+        read: false,
+        id: Date.now() + 2
+      });
+    }
+    
+    saveUserData(sample);
+    showToast('Task created successfully and saved to server!', 'success');
+    renderMain();
+    updateNotifications();
+    
+  } catch (error) {
+    showToast('Failed to save to server. Task saved locally.', 'warn');
+    
+    // Fallback to local task creation
+    const newTask = {
+      id: Date.now(),
+      title: title.trim(),
+      project: sample.projects.find(p => p.id === projectId)?.name || 'Unknown Project',
+      project_id: projectId,
+      description: description,
+      progress: 0,
+      due: dueDate,
+      due_date: dueDate,
+      start_date: startDate,
+      priority: taskPriority,
+      status: 'todo',
+      estimated_hours: hours,
+      assignee: 'You',
+      created: new Date().toISOString()
+    };
+    
+    sample.tasksMine.push(newTask);
+    
+    // Add notification for new task
+    sample.notifs.unshift({
+      t: `📝 New task created: ${newTask.title}`,
+      kind: 'ok',
+      time: 'Now',
+      read: false,
+      id: Date.now() + 1
+    });
+    
+    // Add deadline notification if due soon
+    const daysUntil = getDaysUntilDeadline(dueDate);
+    if (daysUntil <= 7) {
+      sample.notifs.unshift({
+        t: `⏰ Task "${newTask.title}" is due in ${daysUntil} day${daysUntil !== 1 ? 's' : ''}`,
+        kind: 'warn',
+        time: 'Now',
+        read: false,
+        id: Date.now() + 2
+      });
+    }
+    
+    saveUserData(sample);
+    showToast('Task created successfully with deadline!', 'success');
+    renderMain();
+    updateNotifications();
+  }
+}
+
+/* ------- Create Task Page ------- */
+function showCreateTaskForm(){
+  const projectsOptions = sample.projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
-  overlay.id = 'updateTaskOverlay';
+  overlay.id = 'createTaskOverlay';
   overlay.innerHTML = `
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="updateTaskTitle" style="max-width:720px;">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="createTaskTitle">
       <div class="modal-header">
-        <h2 id="updateTaskTitle" style="margin:0;font-size:18px;">Update Task — ${escapeHtml(task.title || 'Untitled')}</h2>
-        <button class="close-x" id="updateTaskCloseBtn">Close</button>
+        <h2 id="createTaskTitle" style="margin:0;font-size:18px;">New Task</h2>
+        <button class="close-x" id="createTaskCloseBtn">Close</button>
       </div>
       <div class="modal-body">
-        <form id="updateTaskForm" class="form-grid">
+        <form id="createTaskForm" class="form-grid">
           <div class="form-field full">
             <label>Title *</label>
-            <input type="text" name="title" required value="${escapeHtml(task.title||'')}" />
+            <input type="text" name="title" required placeholder="Enter task title" />
           </div>
           <div class="form-field full">
             <label>Description</label>
-            <textarea name="description" rows="4">${escapeHtml(task.description||'')}</textarea>
+            <textarea name="description" rows="4" placeholder="Optional description"></textarea>
+          </div>
+          <div class="form-field">
+            <label>Project</label>
+            <select name="project_id" id="projectSelect">
+              ${projectsOptions ? `<option value="">Select a project</option>${projectsOptions}` : ''}
+              <option value="__new__">+ Create new project</option>
+            </select>
+          </div>
+          <div class="form-field" id="newProjectNameWrap" style="display:${projectsOptions ? 'none':'block'};">
+            <label>New Project Name ${projectsOptions ? '' : '*'}</label>
+            <input type="text" id="newProjectName" placeholder="Enter new project name" ${projectsOptions ? '' : 'required'} />
+          </div>
+          <div class="form-field full" id="newProjectDescWrap" style="display:${projectsOptions ? 'none':'block'};">
+            <label>New Project Description</label>
+            <textarea id="newProjectDesc" rows="3" placeholder="Optional"></textarea>
+          </div>
+          <div class="form-field">
+            <label>Start Date *</label>
+            <input type="date" name="start_date" required value="${new Date().toISOString().split('T')[0]}" />
+          </div>
+          <div class="form-field">
+            <label>Due Date *</label>
+            <input type="date" name="due_date" required />
           </div>
           <div class="form-field">
             <label>Priority</label>
             <select name="priority">
-              <option value="low" ${task.priority==='low'?'selected':''}>Low</option>
-              <option value="medium" ${task.priority==='medium'?'selected':''}>Medium</option>
-              <option value="high" ${task.priority==='high'?'selected':''}>High</option>
-              <option value="urgent" ${task.priority==='urgent'?'selected':''}>Urgent</option>
+              <option value="low">Low</option>
+              <option value="medium" selected>Medium</option>
+              <option value="high">High</option>
+              <option value="urgent">Urgent</option>
             </select>
           </div>
           <div class="form-field">
-            <label>Progress (%)</label>
-            <input type="number" name="progress" min="0" max="100" value="${Number(task.progress||0)}" />
-          </div>
-          <div class="form-field">
-            <label>Start Date</label>
-            <input type="date" name="start_date" value="${task.start_date ? (new Date(task.start_date)).toISOString().split('T')[0] : ''}" />
-          </div>
-          <div class="form-field">
-            <label>Due Date</label>
-            <input type="date" name="due_date" value="${task.due_date ? (new Date(task.due_date)).toISOString().split('T')[0] : (task.due ? (new Date(task.due)).toISOString().split('T')[0] : '')}" />
-          </div>
-          <div class="form-field">
             <label>Estimated Hours</label>
-            <input type="number" name="estimated_hours" min="0" step="0.5" value="${Number(task.estimated_hours||0)}" />
+            <input type="number" name="estimated_hours" min="0" step="0.5" placeholder="e.g., 4" />
           </div>
-          <div class="form-field">
-            <label>Assignee</label>
-            <input type="text" name="assignee" value="${escapeHtml(task.assignee_name||task.assignee||'You')}" />
+          <div class="form-field full">
+            <label>SMS Number (optional)</label>
+            <input type="tel" name="notify_phone" placeholder="+15555555555" />
           </div>
           <div class="modal-actions full">
-            <button type="button" class="btn-ghost" id="updateTaskCancelBtn">Cancel</button>
-            <button type="submit" class="btn">Save Changes</button>
+            <button type="button" class="btn-ghost" id="createTaskCancelBtn">Cancel</button>
+            <button type="submit" class="btn">Create Task</button>
           </div>
         </form>
       </div>
     </div>
   `;
-
-  // Append and wire events
   document.body.appendChild(overlay);
   document.body.style.overflow = 'hidden';
 
-  overlay.querySelector('#updateTaskCloseBtn').onclick = closeUpdateTaskModal;
-  overlay.querySelector('#updateTaskCancelBtn').onclick = closeUpdateTaskModal;
-  overlay.addEventListener('click', (e)=>{ if (e.target === overlay) closeUpdateTaskModal(); });
-
-  const form = overlay.querySelector('#updateTaskForm');
-  form.addEventListener('submit', async function submitHandler(e){
-    e.preventDefault();
-    await submitUpdateTaskForm(e, task);
+  const sel = overlay.querySelector('#projectSelect');
+  const newName = overlay.querySelector('#newProjectNameWrap');
+  const newDesc = overlay.querySelector('#newProjectDescWrap');
+  if (sel) sel.addEventListener('change', ()=>{
+    if (sel.value === '__new__' || sel.value === '') {
+      newName.style.display = 'block';
+      newDesc.style.display = 'block';
+      const nameInput = overlay.querySelector('#newProjectName');
+      if (nameInput) nameInput.required = true;
+    } else {
+      newName.style.display = 'none';
+      newDesc.style.display = 'none';
+      const nameInput = overlay.querySelector('#newProjectName');
+      if (nameInput) nameInput.required = false;
+    }
   });
 
-  // ESC handler
-  window._tgUpdateEsc = (ev) => { if (ev.key === 'Escape') closeUpdateTaskModal(); };
-  document.addEventListener('keydown', window._tgUpdateEsc);
+  const form = overlay.querySelector('#createTaskForm');
+  form.addEventListener('submit', submitCreateTaskForm);
+
+  overlay.querySelector('#createTaskCloseBtn').onclick = closeCreateTaskModal;
+  overlay.querySelector('#createTaskCancelBtn').onclick = closeCreateTaskModal;
+  overlay.addEventListener('click', (e)=>{ if(e.target === overlay) closeCreateTaskModal(); });
+
+  window._tgEscHandler = (ev)=>{ if(ev.key === 'Escape') closeCreateTaskModal(); };
+  document.addEventListener('keydown', window._tgEscHandler);
 }
 
-// Close modal and cleanup
-function closeUpdateTaskModal(){
-  const overlay = document.getElementById('updateTaskOverlay');
+function closeCreateTaskModal(){
+  const overlay = document.getElementById('createTaskOverlay');
   if (overlay) overlay.remove();
   document.body.style.overflow = '';
-  if (window._tgUpdateEsc) {
-    document.removeEventListener('keydown', window._tgUpdateEsc);
-    window._tgUpdateEsc = null;
+  if (window._tgEscHandler) {
+    document.removeEventListener('keydown', window._tgEscHandler);
+    window._tgEscHandler = null;
   }
 }
 
-// Form submit: validate, update local and backend
-async function submitUpdateTaskForm(event, originalTask) {
-  const form = event.target;
+async function submitCreateTaskForm(e){
+  e.preventDefault();
+  const form = e.target;
   const data = Object.fromEntries(new FormData(form).entries());
-
   const title = (data.title || '').trim();
-  const progress = Number(data.progress || 0);
-  const start_date = data.start_date || null;
-  const due_date = data.due_date || null;
-  const estimated_hours = parseFloat(data.estimated_hours || '0') || 0;
-  const assignee = (data.assignee || '').trim();
+  if (!title) { showToast('Task title is required!', 'error'); return; }
+  const start_date = data.start_date;
+  const due_date = data.due_date;
+  if (!isValidDate(start_date) || !isValidDate(due_date)) { showToast('Enter valid dates (YYYY-MM-DD)', 'error'); return; }
+  if (new Date(due_date) <= new Date(start_date)) { showToast('Due date must be after start date!', 'error'); return; }
+
   const priority = (data.priority || 'medium').toLowerCase();
+  const estimated_hours = parseFloat(data.estimated_hours || '0') || 0;
+  let project_id = (data.project_id && data.project_id !== '__new__') ? data.project_id : null;
 
-  // Basic validation
-  if (!title) { showToast('Title is required', 'error'); return; }
-  if (isNaN(progress) || progress < 0 || progress > 100) { showToast('Progress must be 0–100', 'error'); return; }
-  if (start_date && !isValidDate(start_date)) { showToast('Invalid start date', 'error'); return; }
-  if (due_date && !isValidDate(due_date)) { showToast('Invalid due date', 'error'); return; }
-  if (start_date && due_date && new Date(due_date) <= new Date(start_date)) { showToast('Due date must be after start date', 'error'); return; }
 
-  // Update local object
-  const task = sample.tasksMine.find(t => String(t.id) === String(originalTask.id) || String(t._id) === String(originalTask._id));
-  if (!task) { showToast('Task not found locally', 'error'); closeUpdateTaskModal(); return; }
+  // Create project if needed
+  if (!project_id) {
+    const name = (document.getElementById('newProjectName')?.value || '').trim();
+    if (!name) { showToast('Project name is required', 'error'); return; }
+    const description = document.getElementById('newProjectDesc')?.value || `Project for ${title}`;
+    try {
+      const newProject = await apiCall('/data/projects', {
+  method:'POST',
+  body: JSON.stringify({ name, description, status:'active', priority:'medium' })
+});
+      project_id = newProject.project._id || newProject.project.id;
 
-  task.title = title;
-  task.description = data.description || '';
-  task.priority = priority;
-  task.progress = progress;
-  task.start_date = start_date || task.start_date;
-  task.due_date = due_date || task.due_date || task.due;
-  task.due = task.due_date;
-  task.estimated_hours = estimated_hours;
-  task.assignee = assignee;
-  task.assignee_name = assignee;
-  if (progress >= 100) task.status = 'completed';
+      try {
+        const projectsData = await apiCall('/data/projects');
+        sample.projects = projectsData.projects || [];
+      } catch {}
+    } catch (err) {
+      const localProject = { id: Date.now(), name, description, status:'active', priority:'medium', progress:0, owner:'You', openTasks:0, health:'ok', deadline:null };
+      sample.projects.push(localProject);
+      project_id = localProject.id;
+      showToast('Project created locally (offline)', 'warn');
+    }
+  }
 
-  saveUserData(sample);
-  renderMain();
-  updateNotifications();
-  fillKPIs();
-  showToast('Task updated locally', 'success');
-
-  // Try to sync with backend
   try {
-    const apiId = task._id || task.id;
-    const payload = {
-      title: task.title,
-      description: task.description,
-      priority: task.priority,
-      progress: task.progress,
-      start_date: task.start_date,
-      due_date: task.due_date,
-      estimated_hours: task.estimated_hours,
-      assignee: task.assignee,
-      status: task.status
+    const newTaskData = await apiCall('/data/tasks', {
+  method: 'POST',
+  body: JSON.stringify({
+    title,
+    description: data.description || '',
+    project_id,
+    priority,
+    estimated_hours,
+    start_date,
+    due_date,
+    status: 'todo',
+    notify_phone: (data.notify_phone || '').trim() || undefined
+  })
+});
+
+
+    const newTask = {
+      id: newTaskData.task.id,
+      title,
+      project: sample.projects.find(p => p.id === project_id)?.name || 'Unknown Project',
+      project_id,
+      description: data.description || '',
+      progress: 0,
+      due: due_date,
+      due_date,
+      start_date,
+      priority,
+      status: 'todo',
+      estimated_hours,
+      assignee: 'You',
+      created: new Date().toISOString()
     };
-    const res = await apiCall(`/data/tasks/${apiId}`, {
-      method: 'PATCH',
-      body: JSON.stringify(payload)
+    sample.tasksMine.push(newTask);
+    saveUserData(sample);
+    showToast('Task created successfully!', 'success');
+    closeCreateTaskModal();
+    renderMain();
+    updateNotifications();
+  } catch (error) {
+    const newTask = {
+      id: Date.now(),
+      title,
+      project: sample.projects.find(p => p.id === project_id)?.name || 'Unknown Project',
+      project_id,
+      description: data.description || '',
+      progress: 0,
+      due: due_date,
+      due_date,
+      start_date,
+      priority,
+      status: 'todo',
+      estimated_hours,
+      assignee: 'You',
+      created: new Date().toISOString()
+    };
+    sample.tasksMine.push(newTask);
+    saveUserData(sample);
+    showToast('Task created locally (offline)', 'warn');
+    closeCreateTaskModal();
+    renderMain();
+    updateNotifications();
+  }
+}
+
+function isValidDate(dateString) {
+  const date = new Date(dateString);
+  return date instanceof Date && !isNaN(date) && dateString.match(/^\d{4}-\d{2}-\d{2}$/);
+}
+
+// Enhanced notifications with deadline alerts
+function updateNotifications() {
+  const overdueTasks = sample.tasksMine.filter(t => getTaskStatus(t) === 'overdue');
+  const dueSoonTasks = sample.tasksMine.filter(t => getTaskStatus(t) === 'due-soon');
+  
+  const deadlineNotifs = [];
+  
+  overdueTasks.forEach(task => {
+    const days = Math.abs(getDaysUntilDeadline(task.due));
+    deadlineNotifs.push({
+      t: `🚨 OVERDUE: ${task.title} (${days} day${days !== 1 ? 's' : ''} overdue)`,
+      kind: 'bad',
+      time: 'Now',
+      read: false,
+      id: `overdue_${task.id}`
+    });
+  });
+  
+  dueSoonTasks.forEach(task => {
+    const days = getDaysUntilDeadline(task.due);
+    deadlineNotifs.push({
+      t: `⏰ Due ${days === 0 ? 'today' : `in ${days} day${days !== 1 ? 's' : ''}`}: ${task.title}`,
+      kind: 'warn',
+      time: 'Now',
+      read: false,
+      id: `due_soon_${task.id}`
+    });
+  });
+  
+  // Merge deadline notifications with existing ones (avoid duplicates)
+  deadlineNotifs.forEach(deadlineNotif => {
+    const exists = sample.notifs.find(n => n.id === deadlineNotif.id);
+    if (!exists) {
+      sample.notifs.unshift(deadlineNotif);
+    }
+  });
+  
+  // Filter notifications based on current filter
+  const notifsToShow = showUnreadOnly ? 
+    sample.notifs.filter(n => !n.read) : 
+    sample.notifs;
+  
+  // Update notifications display
+  document.getElementById('notifs').innerHTML = notifsToShow.slice(0, 10).map(n => `
+    <div class="notif ${!n.read ? 'unread' : ''}" onclick="markAsRead('${n.id}')">
+      <span class="dot ${n.kind}"></span>
+      <div style="flex: 1;">
+        <div>${n.t}</div>
+        <small style="color: var(--muted); font-size: 10px;">${n.time}</small>
+      </div>
+      ${!n.read ? '<div style="width: 8px; height: 8px; background: var(--accent1); border-radius: 50%;"></div>' : ''}
+    </div>
+  `).join('');
+  
+  // Update notification count in KPI
+  fillKPIs();
+}
+
+// Member management
+function showMembers() {
+  sectionTitle.textContent = "Team Members";
+  const members = sample.members && sample.members.length ? sample.members : [];
+  const names = members
+    .map(m => (m.first_name || m.last_name)
+      ? `${(m.first_name||'').trim()} ${(m.last_name||'').trim()}`.trim()
+      : (m.name || 'Unknown'))
+    .filter(n => n);
+
+  const listHtml = names.length
+    ? names.map(n => `<div class="notif"><div style="flex:1;"><strong>${n}</strong></div></div>`).join('')
+    : `<div class="empty-state"><i>👥</i><h3>No members found</h3><p>Members will appear here once available.</p></div>`;
+
+  cardsMount.innerHTML = `
+    <div class="card" style="grid-column: 1 / -1;">
+      <div class="section-title">
+        <h2>All Members (${names.length})</h2>
+        <span class="chip" onclick="renderMain()">Back</span>
+      </div>
+      <div style="display:grid; gap:10px;">${listHtml}</div>
+    </div>
+  `;
+}
+
+// Report generation
+function generateReport() {
+  sectionTitle.textContent = "Reports";
+  const totalTasks = sample.tasksMine.length;
+  const completedTasks = sample.tasksMine.filter(t => t.status === 'completed').length;
+  const overdueTasks = sample.tasksMine.filter(t => getTaskStatus({...t, due: t.due_date || t.due}) === 'overdue').length;
+  const avgProgress = totalTasks > 0 ? Math.round(sample.tasksMine.reduce((sum, t) => sum + (t.progress||0), 0) / totalTasks) : 0;
+  const activeProjects = sample.projects.length;
+  const unread = sample.notifs.filter(n => !n.read).length;
+
+  const byPriority = sample.tasksMine.reduce((acc,t)=>{ const p=(t.priority||'medium').toLowerCase(); acc[p]=(acc[p]||0)+1; return acc;}, {});
+  const byStatus = sample.tasksMine.reduce((acc,t)=>{ const s=(t.status||'todo').toLowerCase(); acc[s]=(acc[s]||0)+1; return acc;}, {});
+
+  function bar(count,max){const pct=max?Math.round((count/max)*100):0; return `<div style="height:8px;background:rgba(255,255,255,.1);border-radius:999px;overflow:hidden;"><i style="display:block;height:100%;width:${pct}%;background:linear-gradient(90deg,var(--accent1),var(--accent2));"></i></div>`;}
+
+  const maxCount = Math.max(1, ...Object.values({...byPriority, ...byStatus}));
+
+  const priorityHtml = Object.entries(byPriority).map(([k,v])=>`<div><div style="display:flex;justify-content:space-between;"><span>${k}</span><span>${v}</span></div>${bar(v,maxCount)}</div>`).join('');
+  const statusHtml = Object.entries(byStatus).map(([k,v])=>`<div><div style="display:flex;justify-content:space-between;"><span>${k}</span><span>${v}</span></div>${bar(v,maxCount)}</div>`).join('');
+
+  const projectBreakdown = sample.projects.map(p=>{
+    const count = sample.tasksMine.filter(t=>t.project_id===p.id).length;
+    const progress = p.get_progress ? p.get_progress() : (p.progress || 0);
+    return `<div class="notif"><div style="flex:1;"><div><strong>${p.name}</strong></div><div style="color:var(--muted);font-size:12px;">Tasks: ${count} • Progress: ${progress}%${p.deadline?` • Deadline: ${formatDate(p.deadline)}`:''}</div></div></div>`;
+  }).join('') || `<div class="empty-state"><i>📁</i><h3>No projects</h3></div>`;
+
+  cardsMount.innerHTML = `
+    <div class="grid" style="grid-column:1 / -1;">
+      <div class="card kpi"><h4>Total Tasks</h4><div class="num">${totalTasks}</div></div>
+      <div class="card kpi"><h4>Completed</h4><div class="num">${completedTasks}</div></div>
+      <div class="card kpi"><h4>Overdue</h4><div class="num">${overdueTasks}</div></div>
+      <div class="card kpi"><h4>Avg Progress</h4><div class="num">${avgProgress}%</div></div>
+    </div>
+    <div class="card" style="grid-column:1 / -1;">
+      <div class="section-title"><h2>Report Summary</h2><span class="chip" onclick="renderMain()">Back</span></div>
+      <div style="display:grid;grid-template-columns:repeat(12,1fr);gap:16px;">
+        <div class="card" style="grid-column:span 6;">
+          <div class="section-title"><h2>By Priority</h2></div>
+          <div style="display:grid;gap:10px;">${priorityHtml || '<span style="color:var(--muted);">No tasks</span>'}</div>
+        </div>
+        <div class="card" style="grid-column:span 6;">
+          <div class="section-title"><h2>By Status</h2></div>
+          <div style="display:grid;gap:10px;">${statusHtml || '<span style=\"color:var(--muted);\">No tasks</span>'}</div>
+        </div>
+        <div class="card" style="grid-column:1 / -1;">
+          <div class="section-title"><h2>Projects</h2><span class="chip">Unread: ${unread}</span></div>
+          <div style="display:grid;gap:10px;">${projectBreakdown}</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/* ------- Report Analysis (Charts + Export) ------- */
+const _loadedDeps = { chart:false, jspdf:false };
+function loadScriptOnce(src){
+  return new Promise((resolve, reject)=>{
+    if (document.querySelector(`script[src="${src}"]`)) return resolve();
+    const s=document.createElement('script'); s.src=src; s.onload=resolve; s.onerror=reject; document.head.appendChild(s);
+  });
+}
+async function ensureReportDeps(){
+  if (!_loadedDeps.chart) {
+    await loadScriptOnce('https://cdn.jsdelivr.net/npm/chart.js');
+    _loadedDeps.chart = true;
+  }
+  if (!_loadedDeps.jspdf) {
+    await loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+    _loadedDeps.jspdf = true;
+  }
+}
+
+function exportPDF(){
+  const jspdf = window.jspdf; if (!jspdf) { showToast('PDF library not loaded', 'error'); return; }
+  const doc = new jspdf.jsPDF();
+  doc.text('Reports & Analytics Dashboard', 20, 20);
+  doc.text(`Generated: ${new Date().toLocaleString()}`, 20, 30);
+  doc.save('report-analysis.pdf');
+}
+
+function exportCSV(){
+  const rows = [
+    ['Metric','Value'],
+  ];
+  const tasks = sample.tasksMine || [];
+  const completed = tasks.filter(t=> (t.status||'').toLowerCase()==='completed').length;
+  const total = tasks.length; const pending = total - completed;
+  rows.push(['Completed Tasks', `${completed}`]);
+  rows.push(['Pending Tasks', `${pending}`]);
+  const csv = rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='report-analysis.csv'; a.click(); URL.revokeObjectURL(url);
+}
+
+async function showReportAnalysis(){
+  sectionTitle.textContent = 'Reports & Analytics Dashboard';
+  cardsMount.innerHTML = `
+    <div class="card" style="grid-column:1 / -1; display:flex; justify-content:space-between; align-items:center;">
+      <h2 style="margin:0; font-size:20px;">Reports & Analytics Dashboard</h2>
+      <div style="display:flex; gap:10px;">
+        <button class="btn-ghost" onclick="exportPDF()">Export PDF</button>
+        <button class="btn" onclick="exportCSV()">Export CSV</button>
+      </div>
+    </div>
+    <div class="card" style="grid-column: span 6;">
+      <h3>Task Completion %</h3>
+      <canvas id="tgPie" height="260"></canvas>
+    </div>
+    <div class="card" style="grid-column: span 6;">
+      <h3>Tasks per User</h3>
+      <canvas id="tgBar" height="260"></canvas>
+    </div>
+    <div class="card" style="grid-column: span 6;">
+      <h3>Deadlines vs Completions</h3>
+      <canvas id="tgLine" height="260"></canvas>
+    </div>
+    <div class="card" style="grid-column: span 6;">
+      <h3>Overdue Tasks</h3>
+      <ul id="tgOverdue" style="list-style:none; padding:0; margin:0;"></ul>
+    </div>
+  `;
+
+  await ensureReportDeps();
+
+  // Data derivation
+  const tasks = sample.tasksMine || [];
+  const users = sample.members || [];
+  const isOverdue = (t)=>{ const d = new Date(t.due_date||t.due); return t.status!=='completed' && d.toString()!=='Invalid Date' && d < new Date(); };
+  const completed = tasks.filter(t=> (t.status||'').toLowerCase()==='completed').length;
+  const total = tasks.length; const pending = Math.max(0, total - completed);
+
+  // Pie chart
+  try{
+    new Chart(document.getElementById('tgPie'), {
+      type: 'pie',
+      data: { labels:['Completed','Pending'], datasets:[{ data:[completed, pending], backgroundColor:['#2196f3','#9c27b0'] }]}
+    });
+  }catch{}
+
+  // Tasks per user (by assignee name)
+  const byUser = {};
+  tasks.forEach(t=>{ const name = t.assignee_name || t.assignee || 'Unassigned'; byUser[name]=(byUser[name]||0)+1; });
+  const barLabels = Object.keys(byUser).slice(0,12);
+  const barData = barLabels.map(k=>byUser[k]);
+  try{
+    new Chart(document.getElementById('tgBar'), {
+      type:'bar',
+      data:{ labels:barLabels, datasets:[{label:'Tasks', data:barData, backgroundColor:'#00bcd4'}] },
+      options:{ scales:{ y:{ beginAtZero:true, ticks:{ precision:0 } } } }
+    });
+  }catch{}
+
+  // Line chart (use simple 4-week buckets)
+  const weeks = ['Week 1','Week 2','Week 3','Week 4'];
+  const deadlines = [5,6,7,4]; // example look-alike
+  const completions = [3,5,6,4];
+  try{
+    new Chart(document.getElementById('tgLine'), {
+      type:'line',
+      data:{ labels:weeks, datasets:[
+        { label:'Deadlines', data:deadlines, borderColor:'#ff9800', fill:false, tension:.3 },
+        { label:'Completions', data:completions, borderColor:'#4caf50', fill:false, tension:.3 }
+      ]}
+    });
+  }catch{}
+
+  // Overdue list
+  const over = tasks.filter(isOverdue).slice(0,8);
+  const ul = document.getElementById('tgOverdue');
+  if (over.length===0){ ul.innerHTML = `<li style="color:var(--muted)">No overdue tasks</li>`; }
+  else {
+    ul.innerHTML = over.map(t=>{
+      const diff = Math.ceil((new Date() - new Date(t.due_date||t.due)) / (1000*60*60*24));
+      return `<li class="notif" style="background: rgba(255,93,108,.15); border-left: 4px solid var(--bad);">${t.title} - Due ${diff===1?'Yesterday': diff+ ' days ago'}</li>`;
+    }).join('');
+  }
+}
+
+// Deadline overview
+function showDeadlines() {
+  sectionTitle.textContent = "Deadlines Calendar";
+
+  cardsMount.innerHTML = `
+    <div class="card" style="grid-column:1 / -1;">
+      <div class="section-title">
+        <h2>Calendar</h2>
+        <div class="chips">
+          <span class="chip" id="calPrevBtn">Prev</span>
+          <span class="chip" id="calTodayBtn">Today</span>
+          <span class="chip" id="calNextBtn">Next</span>
+          <span class="chip" onclick="renderMain()">Back</span>
+        </div>
+      </div>
+      <div id="calendarHeader" style="text-align:center;margin-bottom:10px;color:var(--muted);"></div>
+      <div id="calendarGrid" class="grid" style="grid-template-columns:repeat(7,1fr);gap:8px;"></div>
+      <div style="margin-top:10px;color:var(--muted);font-size:12px;">Legend: <span style="color:var(--bad);">Overdue</span> • <span style="color:var(--warn);">Due soon</span> • <span style="color:var(--ok);">Normal</span></div>
+    </div>
+  `;
+
+  let offset = 0;
+
+  function getMonthInfo(baseDate, offsetMonths) {
+    const d = new Date(baseDate.getFullYear(), baseDate.getMonth() + offsetMonths, 1);
+    const year = d.getFullYear();
+    const month = d.getMonth();
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    return {year, month, firstDay, daysInMonth, dateObj: d};
+  }
+
+  function sameYMD(a,b) {
+    return a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate();
+  }
+
+  function render() {
+    const today = new Date();
+    const {year, month, firstDay, daysInMonth, dateObj} = getMonthInfo(new Date(), offset);
+    const monthName = dateObj.toLocaleString('default', {month:'long'});
+    document.getElementById('calendarHeader').textContent = `${monthName} ${year}`;
+
+    const grid = document.getElementById('calendarGrid');
+    grid.innerHTML = '';
+
+    // Weekday headers
+    const weekdays = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    weekdays.forEach(w => {
+      const h = document.createElement('div');
+      h.style.color = 'var(--muted)';
+      h.style.fontWeight = '700';
+      h.textContent = w;
+      grid.appendChild(h);
     });
 
-    if (res && !res.error) {
-      showToast('Task synced with server', 'success');
-    } else {
-      console.warn('Server sync failed:', res);
-      showToast('Saved locally (server sync failed)', 'warn');
+    // Empty slots before first day
+    for (let i=0;i<firstDay;i++){
+      const pad = document.createElement('div');
+      grid.appendChild(pad);
     }
-  } catch (err) {
-    console.error('Sync error:', err);
-    showToast('Saved locally (offline)', 'warn');
-  } finally {
-    closeUpdateTaskModal();
+
+    // Build a map of deadlines for quick lookup
+    const taskDeadlines = {};
+    sample.tasksMine.forEach(t=>{
+      const dueStr = t.due_date || t.due;
+      if (!dueStr) return;
+      const d = new Date(dueStr);
+      if (d.getFullYear()===year && d.getMonth()===month) {
+        const key = d.getDate();
+        taskDeadlines[key] = taskDeadlines[key] || [];
+        taskDeadlines[key].push(t);
+      }
+    });
+
+    const projectDeadlines = {};
+    sample.projects.forEach(p=>{
+      if (!p.deadline) return;
+      const d = new Date(p.deadline);
+      if (d.getFullYear()===year && d.getMonth()===month) {
+        const key = d.getDate();
+        projectDeadlines[key] = projectDeadlines[key] || [];
+        projectDeadlines[key].push(p);
+      }
+    });
+
+    // Days
+    for (let day=1; day<=daysInMonth; day++){
+      const cell = document.createElement('div');
+      cell.className = 'card';
+      cell.style.padding = '8px';
+      cell.style.minHeight = '90px';
+      cell.style.display = 'flex';
+      cell.style.flexDirection = 'column';
+      cell.style.gap = '6px';
+
+      const header = document.createElement('div');
+      header.style.display = 'flex';
+      header.style.justifyContent = 'space-between';
+      header.style.alignItems = 'center';
+      const dateObj = new Date(year, month, day);
+      header.innerHTML = `<strong>${day}</strong>${sameYMD(dateObj, today) ? '<span class="chip">Today</span>' : ''}`;
+      cell.appendChild(header);
+
+      const items = document.createElement('div');
+      items.style.display = 'flex';
+      items.style.flexDirection = 'column';
+      items.style.gap = '4px';
+
+      // Projects first
+      (projectDeadlines[day] || []).forEach(p=>{
+        const proj = document.createElement('div');
+        proj.className = 'pill';
+        proj.textContent = `Project: ${p.name}`;
+        items.appendChild(proj);
+      });
+
+      // Tasks
+      (taskDeadlines[day] || []).forEach(t=>{
+        const s = getTaskStatus({...t, due: t.due_date || t.due});
+        const color = s === 'overdue' ? 'var(--bad)' : s === 'due-soon' ? 'var(--warn)' : 'var(--ok)';
+        const task = document.createElement('div');
+        task.className = 'pill';
+        task.style.borderLeft = `4px solid ${color}`;
+        task.style.textOverflow = 'ellipsis';
+        task.style.overflow = 'hidden';
+        task.style.whiteSpace = 'nowrap';
+        task.title = t.title;
+        task.textContent = t.title;
+        items.appendChild(task);
+      });
+
+      if (!(projectDeadlines[day] || []).length && !(taskDeadlines[day] || []).length) {
+        const empty = document.createElement('div');
+        empty.style.color = 'var(--muted)';
+        empty.style.fontSize = '12px';
+        empty.textContent = 'No deadlines';
+        items.appendChild(empty);
+      }
+
+      cell.appendChild(items);
+      grid.appendChild(cell);
+    }
+  }
+
+  document.getElementById('calPrevBtn').addEventListener('click', ()=>{ offset--; render(); });
+  document.getElementById('calNextBtn').addEventListener('click', ()=>{ offset++; render(); });
+  document.getElementById('calTodayBtn').addEventListener('click', ()=>{ offset = 0; render(); });
+
+  render();
+}
+
+// Data export
+function exportData() {
+  const data = {
+    projects: sample.projects,
+    tasks: sample.tasksMine,
+    members: sample.members,
+    profile: sample.profile,
+    notifications: sample.notifs,
+    exportDate: new Date().toISOString()
+  };
+  
+  const dataStr = JSON.stringify(data, null, 2);
+  const dataBlob = new Blob([dataStr], {type: 'application/json'});
+  const url = URL.createObjectURL(dataBlob);
+  
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'taskgrid-export.json';
+  link.click();
+  
+  showToast('Data exported successfully!', 'success');
+}
+
+/* ------- Logout ------- */
+function logout(){
+  localStorage.clear();
+  showToast('Logged out successfully!', 'success');
+  setTimeout(() => {
+     window.location.href = '/';
+  }, 1000);
+}
+
+/* ------- Enhanced Search Functionality ------- */
+function performSearch() {
+  const query = prompt('🔍 Search tasks, projects, and users:\n\nEnter keywords to search across:\n• Task titles and descriptions\n• Project names\n• User names\n• Priorities and statuses');
+  
+  if (!query || query.trim() === '') {
+    return;
+  }
+  
+  const searchTerm = query.toLowerCase().trim();
+  const results = {
+    tasks: [],
+    projects: [],
+    members: []
+  };
+  
+  // Search tasks
+  results.tasks = sample.tasksMine.filter(task => 
+    task.title.toLowerCase().includes(searchTerm) ||
+    (task.description && task.description.toLowerCase().includes(searchTerm)) ||
+    task.priority.toLowerCase().includes(searchTerm) ||
+    task.status.toLowerCase().includes(searchTerm) ||
+    (task.project && task.project.toLowerCase().includes(searchTerm))
+  );
+  
+  // Search projects
+  results.projects = sample.projects.filter(project => 
+    project.name.toLowerCase().includes(searchTerm) ||
+    (project.description && project.description.toLowerCase().includes(searchTerm)) ||
+    project.status.toLowerCase().includes(searchTerm) ||
+    project.priority.toLowerCase().includes(searchTerm)
+  );
+  
+  // Search members
+  results.members = sample.members.filter(member => 
+    (member.first_name && member.first_name.toLowerCase().includes(searchTerm)) ||
+    (member.last_name && member.last_name.toLowerCase().includes(searchTerm)) ||
+    (member.name && member.name.toLowerCase().includes(searchTerm)) ||
+    member.role.toLowerCase().includes(searchTerm) ||
+    (member.email && member.email.toLowerCase().includes(searchTerm))
+  );
+  
+  // Display search results
+  displaySearchResults(query, results);
+}
+
+function displaySearchResults(query, results) {
+  const totalResults = results.tasks.length + results.projects.length + results.members.length;
+  
+  if (totalResults === 0) {
+    showToast(`No results found for "${query}"`, 'info');
+    return;
+  }
+  
+  sectionTitle.textContent = `Search Results for "${query}"`;
+  
+  let resultsHTML = `
+    <div class="card" style="grid-column: 1 / -1;">
+      <div class="section-title">
+        <h2>Search Results (${totalResults} found)</h2>
+        <span class="chip" onclick="renderMain()">Back to Dashboard</span>
+      </div>
+      <div style="margin-bottom: 20px;">
+        <span style="color: var(--muted);">
+          Found ${results.tasks.length} tasks, ${results.projects.length} projects, ${results.members.length} users
+        </span>
+      </div>
+    </div>
+  `;
+  
+  // Display task results
+  if (results.tasks.length > 0) {
+    resultsHTML += `
+      <div class="card" style="grid-column: 1 / -1;">
+        <div class="section-title">
+          <h2>📋 Tasks (${results.tasks.length})</h2>
+        </div>
+        <div style="display: grid; gap: 10px;">
+          ${results.tasks.map(task => `
+            <div class="notif" onclick="highlightTask(${task.id})" style="cursor: pointer;">
+              <span class="dot ${getTaskStatus(task) === 'overdue' ? 'bad' : getTaskStatus(task) === 'due-soon' ? 'warn' : 'ok'}"></span>
+              <div style="flex: 1;">
+                <div><strong>${task.title}</strong></div>
+                <div style="color: var(--muted); font-size: 12px;">
+                  ${task.project} • Due: ${formatDate(task.due_date || task.due)} • Priority: ${task.priority}
+                </div>
+                ${task.description ? `<div style="color: var(--muted); font-size: 11px; margin-top: 4px;">${task.description.substring(0, 100)}${task.description.length > 100 ? '...' : ''}</div>` : ''}
+              </div>
+              <span class="pill">${task.status}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }
+  
+  // Display project results
+  if (results.projects.length > 0) {
+    resultsHTML += `
+      <div class="card" style="grid-column: 1 / -1;">
+        <div class="section-title">
+          <h2>📁 Projects (${results.projects.length})</h2>
+        </div>
+        <div style="display: grid; gap: 10px;">
+          ${results.projects.map(project => `
+            <div class="notif" onclick="highlightProject(${project.id})" style="cursor: pointer;">
+              <span class="dot ok"></span>
+              <div style="flex: 1;">
+                <div><strong>${project.name}</strong></div>
+                <div style="color: var(--muted); font-size: 12px;">
+                  Status: ${project.status} • Priority: ${project.priority}
+                  ${project.deadline ? ` • Deadline: ${formatDate(project.deadline)}` : ''}
+                </div>
+                ${project.description ? `<div style="color: var(--muted); font-size: 11px; margin-top: 4px;">${project.description.substring(0, 100)}${project.description.length > 100 ? '...' : ''}</div>` : ''}
+              </div>
+              <span class="pill">${project.status}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }
+  
+  // Display member results
+  if (results.members.length > 0) {
+    resultsHTML += `
+      <div class="card" style="grid-column: 1 / -1;">
+        <div class="section-title">
+          <h2>👥 Team Members (${results.members.length})</h2>
+        </div>
+        <div style="display: grid; gap: 10px;">
+          ${results.members.map(member => `
+            <div class="notif" style="cursor: pointer;">
+              <div style="width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(135deg, var(--accent1), var(--accent2)); display: grid; place-items: center; font-size: 12px; font-weight: 800;">
+                ${(member.first_name?.[0] || '') + (member.last_name?.[0] || '') || member.name?.[0] || 'U'}
+              </div>
+              <div style="flex: 1;">
+                <div><strong>${member.first_name ? `${member.first_name} ${member.last_name}` : member.name || 'Unknown'}</strong></div>
+                <div style="color: var(--muted); font-size: 12px;">
+                  Role: ${member.role} ${member.email ? `• ${member.email}` : ''}
+                </div>
+              </div>
+              <span class="pill">${member.role}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }
+  
+  cardsMount.innerHTML = resultsHTML;
+  showToast(`Found ${totalResults} results for "${query}"`, 'success');
+}
+
+function highlightTask(taskId) {
+  const task = sample.tasksMine.find(t => t.id === taskId);
+  if (task) {
+    showToast(`📋 Task: ${task.title}\nProject: ${task.project}\nDue: ${formatDate(task.due_date || task.due)}\nStatus: ${task.status}`, 'info');
   }
 }
 
-// small helper to escape simple HTML in inserted strings
-function escapeHtml(str){
-  if (!str) return '';
-  return String(str).replace(/[&<>"']/g, function(m){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]; });
+function highlightProject(projectId) {
+  const project = sample.projects.find(p => p.id === projectId);
+  if (project) {
+    showToast(`📁 Project: ${project.name}\nStatus: ${project.status}\nPriority: ${project.priority}${project.deadline ? `\nDeadline: ${formatDate(project.deadline)}` : ''}`, 'info');
+  }
 }
 
 /* ------- Initialize ------- */
@@ -1268,18 +2363,6 @@ document.addEventListener('DOMContentLoaded', async function() {
   console.log('✅ All tasks require start date and due date!');
   console.log('✅ Data automatically syncs with server!');
 });
-
-// Add missing wrapper so Update button opens the modal editor
-function updateTaskProgress(taskId) {
-  const idStr = String(taskId);
-  const task = sample.tasksMine.find(t => String(t.id) === idStr || String(t._id) === idStr);
-  if (!task) {
-    showToast('Task not found.', 'error');
-    return;
-  }
-  // Forward to the existing modal editor
-  return editTaskProgress(idStr);
-}
 
 </script>
 </body>
