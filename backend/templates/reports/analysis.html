@@ -261,28 +261,6 @@
       });
     }
 
-    async function loadProgressData(params) {
-      try {
-        const res = await window.api.request(`/data/reports/task-progress?${params.toString()}`);
-        return res.task_progress || {};
-      } catch (err) {
-        toast(err.message || 'Failed to load progress data');
-        return {};
-      }
-    }
-
-    async function renderProgressCharts() {
-      const params = new URLSearchParams();
-      const s = document.getElementById('startDate').value; if (s) params.set('start_date', s);
-      const e = document.getElementById('endDate').value; if (e) params.set('end_date', e);
-      const p = document.getElementById('projectSelect').value; if (p) params.set('project_id', p);
-      const data = await loadProgressData(params);
-      const ctxBar = { chartColors: ['rgba(6, 215, 255, 0.7)', 'rgba(123, 44, 255, 0.7)'] };
-      const ctxDonut = { chartColors: ['rgba(6, 215, 255, 0.7)', 'rgba(255, 208, 0, 0.7)', 'rgba(255, 93, 108, 0.7)'] };
-      renderProgressCharts(ctxBar, data);
-      renderDonutChart(ctxDonut, data);
-    }
-
     async function loadReport(){
       const params = new URLSearchParams();
       const s = document.getElementById('startDate').value; if (s) params.set('start_date', s);
@@ -294,16 +272,7 @@
 
         // Fetch tasks for the same filter set to derive progress charts
         try {
-          // Try using the same API helper; fall back to fetch
-          let tasksRes = null;
-          if (window.api && window.api.request) {
-            tasksRes = await window.api.request(`/data/tasks?${params.toString()}`);
-          } else {
-            const token = localStorage.getItem('taskgrid_token');
-            const r = await fetch(`${window.location.origin}/data/tasks?${params.toString()}`, { headers: { Authorization: `Bearer ${token}` }});
-            tasksRes = await r.json();
-          }
-          const tasks = tasksRes.tasks || [];
+          const tasks = await fetchTasksWithParams(params);
           renderProgressCharts(tasks);
         } catch (chartErr) {
           console.warn('Failed to load tasks for charts', chartErr);
