@@ -55,6 +55,9 @@ def create_app():
 
     mail.init_app(app)
 
+    # Ensure APP_URL is present (used in emails)
+    app.config.setdefault('APP_URL', os.getenv('APP_URL', f"http://{os.getenv('HOST','localhost')}:5000"))
+
     # -------------------------------
     # Automated Deadline Email Check (every 1 hour)
     # -------------------------------
@@ -179,8 +182,28 @@ def create_app():
             print(f"❌ Failed to send email: {str(e)}")
             return jsonify({"error": f"Failed to send email: {str(e)}"}), 500
 
+    # Admin endpoint to run notifier manually (requires JWT)
+    @app.route('/admin/run-deadline-notifier', methods=['POST'])
+    def admin_run_deadline_notifier():
+        """
+        Trigger the deadline notifier manually (authorized users only).
+        Use this endpoint for testing: requires a valid token in Authorization header.
+        """
+        try:
+            # verify_jwt_in_request will raise if token missing/invalid
+            try:
+                verify_jwt_in_request()
+            except Exception as e:
+                return jsonify({'error': 'Authorization required'}), 401
 
-
+            # Call the notifier
+            try:
+                send_deadline_alerts(app, init_mongo(), mail)
+                return jsonify({'message': 'Notifier run completed'}), 200
+            except Exception as e:
+                return jsonify({'error': f'Notifier failed: {str(e)}'}), 500
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
 
     return app
 

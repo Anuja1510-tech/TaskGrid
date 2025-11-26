@@ -1,44 +1,62 @@
 # utils/deadline_notifier.py
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from flask_mail import Message
 from bson import ObjectId
 import traceback
 
 def parse_maybe_datetime(v):
-    """Return a datetime object if v is datetime or ISO string. Otherwise None."""
+    """Return a timezone-aware UTC datetime if possible, otherwise None."""
     if v is None:
         return None
     if isinstance(v, datetime):
-        return v
-    # if it's a string attempt to parse common ISO formats
+        # make timezone-aware (assume UTC if naive)
+        if v.tzinfo is None:
+            return v.replace(tzinfo=timezone.utc)
+        return v.astimezone(timezone.utc)
     try:
-        # strip timezone Z if present
-        s = str(v)
+        s = str(v).strip()
+        if not s:
+            return None
+        # strip trailing Z and try a few formats
         if s.endswith('Z'):
             s = s[:-1]
-        # Try parsing common formats
         for fmt in ("%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
             try:
-                return datetime.strptime(s, fmt)
-            except:
-                pass
+                dt = datetime.strptime(s, fmt)
+                # if format lacks time, treat as midnight UTC of that day
+                if fmt == "%Y-%m-%d":
+                    dt = datetime(dt.year, dt.month, dt.day, 0, 0, 0)
+                return dt.replace(tzinfo=timezone.utc)
+            except Exception:
+                continue
     except Exception:
         pass
     return None
 
+def _to_object_id(v):
+    """Return ObjectId if possible, otherwise return original value."""
+    if v is None:
+        return None
+    if isinstance(v, ObjectId):
+        return v
+    try:
+        return ObjectId(str(v))
+    except Exception:
+        return None
+
 def send_deadline_alerts(app, db, mail):
     """
-    Send email reminders for tasks due within 24 hours and create notification documents.
-    Safe: tolerant of due_date types, avoids duplicate notifications within 24h.
+    Send email reminders for tasks due within the next 24 hours and create notification documents.
+    - Uses robust parsing of due_date.
+    - Avoids duplicate emails if a deadline_email notification for the same task/user exists within the last 24 hours.
+    - Records notification documents with email_sent metadata.
     """
     with app.app_context():
         try:
-            now = datetime.utcnow()
+            now = datetime.utcnow().replace(tzinfo=timezone.utc)
             next_24h = now + timedelta(hours=24)
 
-            # Build a query that finds tasks with due_date within the next 24 hours.
-            # We can't query reliably if due_date stored as string, so fetch candidates with
-            # due_date exists and filter in Python as well.
+            # Query candidate tasks (tasks with a due_date and not completed)
             cursor = db.tasks.find({"due_date": {"$exists": True}, "status": {"$ne": "completed"}})
 
             for task in cursor:
@@ -49,69 +67,81 @@ def send_deadline_alerts(app, db, mail):
                         # skip tasks with invalid dates
                         continue
 
-                    # Accept tasks where due is between now and next_24h (inclusive)
+                    # Only notify tasks due within the next 24 hours (inclusive)
                     if not (now <= due_dt <= next_24h):
                         continue
 
-                    # Find the user
-                    user_id = task.get("user_id") or task.get("owner_id") or task.get("assigned_to")
-                    if not user_id:
-                        # no user - skip
+                    # Determine user identifier field (try common fields)
+                    user_ref = task.get("assigned_to") or task.get("user_id") or task.get("owner_id") or task.get("created_by")
+                    if not user_ref:
+                        # no associated user to notify
                         continue
 
-                    # ensure ObjectId
-                    user_obj = None
-                    try:
-                        user_obj = db.users.find_one({"_id": ObjectId(user_id)})
-                    except Exception:
-                        # maybe user_id is already an ObjectId or string - try both
-                        user_obj = db.users.find_one({"_id": user_id}) or db.users.find_one({"email": user_id})
-
-                    if not user_obj:
+                    # Try to resolve user document: accept ObjectId or string id or email
+                    user_doc = None
+                    # If user_ref is ObjectId or can be converted to one, try that first
+                    uid_oid = _to_object_id(user_ref)
+                    if uid_oid:
+                        user_doc = db.users.find_one({"_id": uid_oid})
+                    if not user_doc:
+                        # attempt by storing string id or email lookup
+                        user_doc = db.users.find_one({"_id": user_ref}) or db.users.find_one({"email": str(user_ref)})
+                    if not user_doc:
+                        # cannot find user
                         continue
-                    user_email = user_obj.get("email")
+
+                    user_email = user_doc.get("email")
                     if not user_email:
                         continue
 
                     task_name = task.get("title", "Untitled Task")
-                    due_str = due_dt.strftime("%Y-%m-%d %H:%M UTC")
+                    due_str = due_dt.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
-                    # Avoid sending duplicate reminder multiple times in a short window:
-                    # if a notification of type 'deadline' for this task exists and was created
-                    # less than 12 hours ago, skip sending again.
+                    # Prevent duplicate emails: if a deadline_email notification for this task/user exists within 24h, skip
+                    recent_cutoff = datetime.utcnow() - timedelta(hours=24)
                     exists = db.notifications.find_one({
-                        "task_id": task["_id"],
-                        "type": "deadline",
-                        "created_at": {"$gte": datetime.utcnow() - timedelta(hours=12)}
+                        "task_id": task.get("_id"),
+                        "user_id": user_doc.get("_id"),
+                        "type": "deadline_email",
+                        "created_at": {"$gte": recent_cutoff}
                     })
                     if exists:
-                        # already notified recently
+                        # already notified within 24h
                         continue
 
-                    # Compose and send email
-                    subject = "⏰ TaskGrid Reminder: Task deadline within 24 hours"
-                    body = (f"Hello {user_obj.get('username') or user_obj.get('first_name') or 'User'},\n\n"
-                            f"Your task '{task_name}' is due on {due_str}.\n"
-                            f"Please update progress on TaskGrid: {app.config.get('APP_URL', '')}/dashboard\n\n"
-                            "— TaskGrid")
+                    # Compose email
+                    subject = "⏰ TaskGrid Reminder — Task due within 24 hours"
+                    app_url = app.config.get('APP_URL', window_if_missing(app))
+                    dashboard_link = f"{app_url.rstrip('/')}/dashboard"
+                    body = (
+                        f"Hello {user_doc.get('first_name') or user_doc.get('username') or 'User'},\n\n"
+                        f"Reminder: the task \"{task_name}\" is due on {due_str}.\n"
+                        f"Open the task in TaskGrid: {dashboard_link}\n\n"
+                        "Please update the task progress if needed.\n\n— TaskGrid"
+                    )
 
                     msg = Message(subject=subject, recipients=[user_email], body=body)
                     try:
                         mail.send(msg)
                         app.logger.info(f"Sent deadline email to {user_email} for task {task.get('_id')}")
+                        email_sent = True
                     except Exception as e:
                         app.logger.error(f"Failed to send email to {user_email}: {e}")
+                        email_sent = False
 
-                    # Log notification in DB
-                    db.notifications.insert_one({
-                        "user_id": ObjectId(user_obj["_id"]) if not isinstance(user_obj["_id"], str) else user_obj["_id"],
-                        "task_id": task["_id"],
-                        "message": f"⏰ Task '{task_name}' is due within 24 hours!",
+                    # Create notification document (avoid duplicates by unique compound key timestamp check above)
+                    notif_doc = {
+                        "user_id": user_doc.get("_id"),
+                        "task_id": task.get("_id"),
+                        "type": "deadline_email",
+                        "message": f"⏰ Task '{task_name}' is due within 24 hours",
                         "timestamp": datetime.utcnow(),
-                        "type": "deadline",
+                        "created_at": datetime.utcnow(),
                         "status": "unread",
-                        "created_at": datetime.utcnow()
-                    })
+                        "email_sent": bool(email_sent),
+                        "email_to": user_email
+                    }
+                    db.notifications.insert_one(notif_doc)
 
                 except Exception as task_e:
                     app.logger.error(f"Error processing task {task.get('_id')}: {task_e}\n{traceback.format_exc()}")
@@ -119,3 +149,8 @@ def send_deadline_alerts(app, db, mail):
             app.logger.info("Deadline notifier: scan finished.")
         except Exception as e:
             app.logger.error(f"send_deadline_alerts failed: {e}\n{traceback.format_exc()}")
+
+def window_if_missing(app):
+    """Fallback to build APP_URL from app config or localhost if not provided."""
+    host = app.config.get('HOSTNAME') or 'http://localhost:5000'
+    return app.config.get('APP_URL', host)
