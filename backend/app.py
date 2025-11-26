@@ -130,13 +130,91 @@ def create_app():
     # ✅ API endpoint to fetch stored notifications
     @app.route('/data/notifications', methods=['GET'])
     def get_notifications():
-        """Return stored notifications from MongoDB"""
-        notifs = list(db.notifications.find().sort("timestamp", -1))
-        for n in notifs:
-            n["_id"] = str(n["_id"])
-            n["user_id"] = str(n.get("user_id", ""))
-            n["task_id"] = str(n.get("task_id", ""))
-        return jsonify({"notifications": notifs}), 200
+        """Return notifications relevant to the requesting user (or all if unauthenticated)."""
+        try:
+            # try to get authenticated user
+            uid = None
+            try:
+                verify_jwt_in_request()
+                uid = get_jwt_identity()
+            except Exception:
+                uid = None
+
+            if uid:
+                # try to build ObjectId, but be tolerant if uid is not ObjectId formatted
+                try:
+                    uid_oid = ObjectId(uid)
+                except Exception:
+                    uid_oid = uid
+
+                # Gather project ids owned by user
+                project_ids = []
+                try:
+                    owned = list(db.projects.find({"owner_id": uid_oid}))
+                    project_ids.extend([p["_id"] for p in owned])
+                except Exception:
+                    pass
+
+                # Gather project ids from tasks where user is assigned or creator
+                try:
+                    task_cursor = list(db.tasks.find({"$or":[{"assigned_to": uid_oid}, {"created_by": uid_oid}]}))
+                    task_ids = [t["_id"] for t in task_cursor]
+                    for t in task_cursor:
+                        pid = t.get("project_id")
+                        # normalize possible string/object forms
+                        try:
+                            if isinstance(pid, ObjectId):
+                                project_ids.append(pid)
+                            else:
+                                project_ids.append(ObjectId(pid))
+                        except Exception:
+                            project_ids.append(pid)
+                except Exception:
+                    task_ids = []
+                
+                # Build OR query clauses (tolerant to string/ObjectId)
+                or_clauses = [
+                    {"user_id": uid_oid},
+                    {"user_id": str(uid)}
+                ]
+                if project_ids:
+                    or_clauses.append({"project_id": {"$in": project_ids}})
+                    or_clauses.append({"project_id": {"$in": [str(p) for p in project_ids if p is not None]}})
+                if 'task_ids' in locals() and task_ids:
+                    or_clauses.append({"task_id": {"$in": task_ids}})
+                    or_clauses.append({"task_id": {"$in": [str(t) for t in task_ids]}})
+
+                cursor = db.notifications.find({"$or": or_clauses}).sort("timestamp", -1)
+            else:
+                # unauthenticated: return all (legacy behaviour)
+                cursor = db.notifications.find().sort("timestamp", -1)
+
+            notifs = []
+            for n in cursor:
+                # normalize fields for JSON
+                n["_id"] = str(n.get("_id"))
+                if n.get("user_id") is not None:
+                    try:
+                        n["user_id"] = str(n["user_id"])
+                    except Exception:
+                        pass
+                if n.get("task_id") is not None:
+                    try:
+                        n["task_id"] = str(n["task_id"])
+                    except Exception:
+                        pass
+                if n.get("project_id") is not None:
+                    try:
+                        n["project_id"] = str(n["project_id"])
+                    except Exception:
+                        pass
+                notifs.append(n)
+
+            return jsonify({"notifications": notifs}), 200
+
+        except Exception as e:
+            print("Error fetching notifications:", e)
+            return jsonify({"notifications": []}), 500
 
     # ✅ 404 handler
     @app.errorhandler(404)

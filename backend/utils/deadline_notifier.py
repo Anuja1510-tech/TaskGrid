@@ -133,6 +133,8 @@ def send_deadline_alerts(app, db, mail):
                     notif_doc = {
                         "user_id": user_doc.get("_id"),
                         "task_id": task.get("_id"),
+                        # include project_id when available so project-level notifications can be queried
+                        "project_id": _to_object_id(task.get("project_id")) or task.get("project_id"),
                         "type": "deadline_email",
                         "message": f"⏰ Task '{task_name}' is due within 24 hours",
                         "timestamp": datetime.utcnow(),
